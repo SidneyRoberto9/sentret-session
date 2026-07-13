@@ -9,6 +9,30 @@ Maven Central). Este guia cobre o que muda e como migrar com segurança.
 
 ---
 
+## 2.0.0 → 2.1.0 (opcional, sem quebras)
+
+A versão **2.1.0** é um bump **MINOR**: tudo é aditivo e desligado por padrão
+(`max-idle=0`/desativado, `endpoints-enabled=false`, `sse-enabled=false`). **Não há passo
+obrigatório** — quem já usa `2.0.0` continua funcionando sem tocar em nada.
+
+O que a 2.1.0 adiciona (todo opt-in): inatividade central (`max-idle`) com `renew()` no
+`SpringSessionLiteService`; endpoints REST `/session/status|heartbeat|renew|logout`
+(`endpoints-enabled=true`); stream SSE `/session/stream` (`sse-enabled=true`) com eventos
+`warning`/`logout`/`renew`; e as propriedades de config-echo para o frontend
+(`heartbeat-interval`, `status-poll-interval`, `warning-before`, `login-url`, `logout-url`,
+`redirect-after-expiry-url`).
+
+Para **optar** pelos novos recursos (uso como hub de sessão centralizado numa plataforma com
+várias aplicações), siga o checklist completo de adesão — propriedades de backend e o contrato
+esperado do lado frontend — em
+[`docs/06-sessao-centralizada-multissistema.md`](docs/06-sessao-centralizada-multissistema.md).
+Referência de todas as propriedades novas:
+[`docs/02-configuracao-application-properties.md`](docs/02-configuracao-application-properties.md).
+
+Ver também o [`CHANGELOG.md`](CHANGELOG.md) para a lista completa de mudanças da 2.1.0.
+
+---
+
 ## 1. Banco de dados — rename da tabela e índices (obrigatório)
 
 A tabela passou de `spring_lite_sessions` para `spring_session_lite_sessions`, os índices foram
