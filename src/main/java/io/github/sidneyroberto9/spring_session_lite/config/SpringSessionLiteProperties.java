@@ -73,6 +73,49 @@ public class SpringSessionLiteProperties {
     private boolean slidingExpiration = false;
 
     /**
+     * Maximum inactivity window before a session is considered idle-expired, evaluated in
+     * {@code validate()} against {@code lastAccessedAt}. {@code null} or {@link Duration#ZERO}
+     * disables idle enforcement (default), preserving pre-2.1 behavior. When enabled, the
+     * effective last-accessed throttle is internally capped at {@code maxIdle / 2} regardless of
+     * {@link #lastAccessedThrottle}, so idle detection stays accurate to within half the idle
+     * window.
+     */
+    private Duration maxIdle = Duration.ZERO;
+
+    /**
+     * How often the frontend client should send an activity heartbeat. Config-echo only — the
+     * library serves this via the session status endpoint and does not enforce it.
+     */
+    private Duration heartbeatInterval = Duration.ofSeconds(60);
+
+    /**
+     * How often the frontend client should poll the session status endpoint. Config-echo only.
+     */
+    private Duration statusPollInterval = Duration.ofSeconds(30);
+
+    /**
+     * How long before idle/absolute expiry the frontend client should show a warning. Config-echo
+     * only.
+     */
+    private Duration warningBefore = Duration.ofSeconds(60);
+
+    /**
+     * URL the frontend client should redirect to for (re)authentication. Config-echo only.
+     */
+    private String loginUrl;
+
+    /**
+     * URL the frontend client should call/redirect to on explicit logout. Config-echo only.
+     */
+    private String logoutUrl;
+
+    /**
+     * URL the frontend client should redirect to after session expiry (idle or absolute).
+     * Config-echo only; falls back to {@link #loginUrl} when unset.
+     */
+    private String redirectAfterExpiryUrl;
+
+    /**
      * Enable CSRF protection on the default security chain. Cookie-based auth is CSRF-sensitive;
      * keep SameSite=Lax/Strict when this is disabled.
      */

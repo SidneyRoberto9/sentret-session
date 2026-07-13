@@ -4,6 +4,7 @@ import io.github.sidneyroberto9.spring_session_lite.config.SpringSessionLiteProp
 import io.github.sidneyroberto9.spring_session_lite.domain.SpringSessionLiteSession;
 import io.github.sidneyroberto9.spring_session_lite.event.SpringSessionLiteSessionCreatedEvent;
 import io.github.sidneyroberto9.spring_session_lite.event.SpringSessionLiteSessionDestroyedEvent;
+import io.github.sidneyroberto9.spring_session_lite.event.SpringSessionLiteSessionRenewedEvent;
 import io.github.sidneyroberto9.spring_session_lite.security.SpringSessionLiteUser;
 import io.github.sidneyroberto9.spring_session_lite.store.SpringSessionLiteSessionStore;
 import io.github.sidneyroberto9.spring_session_lite.util.NanoId;
@@ -13,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
@@ -62,6 +64,14 @@ public class SpringSessionLiteService {
                 return Optional.empty();
             }
 
+            if (isIdleEnabled()) {
+                Instant reference = session.getLastAccessedAt() != null ? session.getLastAccessedAt() : session.getCreatedAt();
+
+                if (reference.plus(properties.getMaxIdle()).isBefore(now)) {
+                    return Optional.empty();
+                }
+            }
+
             String currentIpHash = ipHasher.hash(ipResolver.resolve(request));
 
             if (!session.getIpHash().equals(currentIpHash)) {
@@ -102,20 +112,53 @@ public class SpringSessionLiteService {
         store.deleteExpired(Instant.now());
     }
 
+    @Transactional
+    public Optional<SpringSessionLiteUser> renew(String sessionId) {
+        return store.findBySessionId(sessionId).map(session -> {
+            Instant now = Instant.now();
+
+            session.setExpiresAt(now.plus(properties.getTtl()));
+            session.setLastAccessedAt(now);
+            store.save(session);
+
+            eventPublisher.publishEvent(new SpringSessionLiteSessionRenewedEvent(session.getUserId(), sessionId, now));
+
+            return toUser(session);
+        });
+    }
+
+    @Transactional
+    public Optional<SpringSessionLiteUser> renew(HttpServletRequest request, HttpServletResponse response) {
+        String sessionId = cookieManager.read(request);
+
+        if (sessionId == null) {
+            return Optional.empty();
+        }
+
+        Optional<SpringSessionLiteUser> renewed = renew(sessionId);
+
+        renewed.ifPresent(user -> cookieManager.write(response, sessionId));
+
+        return renewed;
+    }
+
     private void touch(SpringSessionLiteSession session, Instant now) {
-        if (!properties.isUpdateLastAccessed() && !properties.isSlidingExpiration()) {
+        boolean idleEnabled = isIdleEnabled();
+
+        if (!properties.isUpdateLastAccessed() && !properties.isSlidingExpiration() && !idleEnabled) {
             return;
         }
 
         Instant last = session.getLastAccessedAt();
+        Duration throttle = effectiveLastAccessedThrottle();
 
-        boolean withinThrottle = last != null && last.plus(properties.getLastAccessedThrottle()).isAfter(now);
+        boolean withinThrottle = last != null && last.plus(throttle).isAfter(now);
 
         if (withinThrottle) {
             return;
         }
 
-        if (properties.isUpdateLastAccessed()) {
+        if (properties.isUpdateLastAccessed() || idleEnabled) {
             session.setLastAccessedAt(now);
         }
 
@@ -124,6 +167,23 @@ public class SpringSessionLiteService {
         }
 
         store.save(session);
+    }
+
+    private boolean isIdleEnabled() {
+        Duration maxIdle = properties.getMaxIdle();
+        return maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
+    }
+
+    private Duration effectiveLastAccessedThrottle() {
+        Duration configured = properties.getLastAccessedThrottle();
+
+        if (!isIdleEnabled()) {
+            return configured;
+        }
+
+        Duration halfMaxIdle = properties.getMaxIdle().dividedBy(2);
+
+        return configured.compareTo(halfMaxIdle) <= 0 ? configured : halfMaxIdle;
     }
 
     private SpringSessionLiteUser toUser(SpringSessionLiteSession session) {

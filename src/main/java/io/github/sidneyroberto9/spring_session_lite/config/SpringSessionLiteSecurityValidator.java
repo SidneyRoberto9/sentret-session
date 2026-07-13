@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.InitializingBean;
 
+import java.time.Duration;
+
 @Slf4j
 @RequiredArgsConstructor
 public class SpringSessionLiteSecurityValidator implements InitializingBean {
@@ -18,6 +20,13 @@ public class SpringSessionLiteSecurityValidator implements InitializingBean {
 
         if ("None".equalsIgnoreCase(properties.getCookieSameSite()) && !properties.isCsrfEnabled()) {
             log.warn("[spring-session-lite] 'cookie-same-site=None' with CSRF disabled is unsafe for " + "cookie-based auth. Enable 'spring-session-lite.csrf-enabled' or use SameSite=Lax/Strict.");
+        }
+
+        Duration maxIdle = properties.getMaxIdle();
+        boolean idleEnabled = maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
+
+        if (idleEnabled && properties.getLastAccessedThrottle().compareTo(maxIdle.dividedBy(2)) >= 0) {
+            log.warn("[spring-session-lite] 'last-accessed-throttle' ({}) is >= half of 'max-idle' ({}). " + "The library caps the effective throttle at max-idle/2 internally so idle detection stays " + "accurate, but consider lowering 'spring-session-lite.last-accessed-throttle' explicitly.", properties.getLastAccessedThrottle(), maxIdle);
         }
     }
 }
