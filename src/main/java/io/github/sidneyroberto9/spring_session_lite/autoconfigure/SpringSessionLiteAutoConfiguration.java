@@ -40,6 +40,7 @@ import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @AutoConfiguration(
@@ -125,6 +126,16 @@ public class SpringSessionLiteAutoConfiguration {
             res.getWriter().write("{\"error\":\"unauthorized\",\"message\":\"Authentication required\"}");
         };
 
+        // The opt-in /session/* endpoints controller lives in a separate @AutoConfiguration
+        // (SpringSessionLiteEndpointsAutoConfiguration) so it can be conditioned independently on
+        // endpoints-enabled. Bean-instantiation order across two distinct @AutoConfiguration
+        // classes isn't guaranteed by before=/after=, so the permit-all path for /session/status
+        // is wired here instead, in the one place that already builds the default chain.
+        List<String> permitAll = new ArrayList<>(properties.getPermitAllPaths());
+        if (properties.isEndpointsEnabled()) {
+            permitAll.add(properties.getEndpointsBasePath() + "/status");
+        }
+
         http
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .logout(AbstractHttpConfigurer::disable)
@@ -132,7 +143,7 @@ public class SpringSessionLiteAutoConfiguration {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers(properties.getPermitAllPaths().toArray(String[]::new)).permitAll()
+                        .requestMatchers(permitAll.toArray(String[]::new)).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(springSessionLiteAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 

@@ -140,4 +140,16 @@ public class SpringSessionLiteProperties {
     private String cleanupCron = "0 */30 * * * *";
 
     private List<String> permitAllPaths = new ArrayList<>(List.of("/login", "/auth/**", "/public/**"));
+
+    /**
+     * Register the opt-in {@code /session/*} REST endpoints (status/heartbeat/renew/logout).
+     * Off by default; existing consumers are unaffected until they explicitly enable this.
+     */
+    private boolean endpointsEnabled = false;
+
+    /**
+     * Base path for the opt-in session endpoints, used only when {@link #endpointsEnabled} is
+     * {@code true}.
+     */
+    private String endpointsBasePath = "/session";
 }

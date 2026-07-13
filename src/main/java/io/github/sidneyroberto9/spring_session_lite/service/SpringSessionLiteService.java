@@ -142,6 +142,30 @@ public class SpringSessionLiteService {
         return renewed;
     }
 
+    /**
+     * Read-only snapshot of remaining time for the given session, for status/heartbeat/renew
+     * responses. Does not touch/validate the session — callers that need validation call
+     * {@link #validate(String, HttpServletRequest)} first (the authentication filter already does
+     * this on every authenticated request).
+     */
+    @Transactional(readOnly = true)
+    public Optional<SpringSessionLiteSessionRemaining> remaining(String sessionId) {
+        return store.findBySessionId(sessionId).map(session -> {
+            Instant now = Instant.now();
+
+            long absoluteRemainingMs = Math.max(0, Duration.between(now, session.getExpiresAt()).toMillis());
+
+            Long idleRemainingMs = null;
+
+            if (isIdleEnabled()) {
+                Instant reference = session.getLastAccessedAt() != null ? session.getLastAccessedAt() : session.getCreatedAt();
+                idleRemainingMs = Math.max(0, Duration.between(now, reference.plus(properties.getMaxIdle())).toMillis());
+            }
+
+            return new SpringSessionLiteSessionRemaining(absoluteRemainingMs, idleRemainingMs);
+        });
+    }
+
     private void touch(SpringSessionLiteSession session, Instant now) {
         boolean idleEnabled = isIdleEnabled();
 

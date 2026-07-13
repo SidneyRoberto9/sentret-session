@@ -8,6 +8,7 @@ import io.github.sidneyroberto9.spring_session_lite.service.SpringSessionLiteCoo
 import io.github.sidneyroberto9.spring_session_lite.service.SpringSessionLiteIpHasher;
 import io.github.sidneyroberto9.spring_session_lite.service.SpringSessionLiteIpResolver;
 import io.github.sidneyroberto9.spring_session_lite.service.SpringSessionLiteService;
+import io.github.sidneyroberto9.spring_session_lite.service.SpringSessionLiteSessionRemaining;
 import io.github.sidneyroberto9.spring_session_lite.store.SpringSessionLiteSessionStore;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
@@ -227,5 +228,76 @@ class SpringSessionLiteServiceTest {
         assertThat(service.renew(request, response)).isEmpty();
         verifyNoInteractions(store);
         assertThat(response.getHeader("Set-Cookie")).isNull();
+    }
+
+    // --- remaining() ---
+
+    @Test
+    void remainingReturnsEmptyWhenSessionNotFound() {
+        when(store.findBySessionId("missing")).thenReturn(Optional.empty());
+
+        assertThat(service.remaining("missing")).isEmpty();
+    }
+
+    @Test
+    void remainingReturnsNullIdleRemainingWhenMaxIdleDisabledByDefault() {
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.20", now);
+        session.setExpiresAt(now.plus(Duration.ofMinutes(30)));
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        Optional<SpringSessionLiteSessionRemaining> result = service.remaining("sid");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().absoluteRemainingMs()).isCloseTo(Duration.ofMinutes(30).toMillis(), org.assertj.core.data.Offset.offset(5_000L));
+        assertThat(result.get().idleRemainingMs()).isNull();
+    }
+
+    @Test
+    void remainingComputesIdleRemainingWhenMaxIdleEnabled() {
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.21", now);
+        session.setExpiresAt(now.plus(Duration.ofMinutes(30)));
+        session.setLastAccessedAt(now.minus(Duration.ofMinutes(4)));
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        Optional<SpringSessionLiteSessionRemaining> result = service.remaining("sid");
+
+        assertThat(result).isPresent();
+        // idle deadline = lastAccessedAt(now-4m) + maxIdle(10m) = now+6m from "now"
+        assertThat(result.get().idleRemainingMs()).isCloseTo(Duration.ofMinutes(6).toMillis(), org.assertj.core.data.Offset.offset(5_000L));
+    }
+
+    @Test
+    void remainingFallsBackToCreatedAtWhenLastAccessedAtNullAndMaxIdleEnabled() {
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.22", now);
+        session.setLastAccessedAt(null);
+        session.setCreatedAt(now.minus(Duration.ofMinutes(2)));
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        Optional<SpringSessionLiteSessionRemaining> result = service.remaining("sid");
+
+        assertThat(result).isPresent();
+        // idle deadline = createdAt(now-2m) + maxIdle(10m) = now+8m from "now"
+        assertThat(result.get().idleRemainingMs()).isCloseTo(Duration.ofMinutes(8).toMillis(), org.assertj.core.data.Offset.offset(5_000L));
+    }
+
+    @Test
+    void remainingClampsToZeroWhenAlreadyPastExpiryOrIdleDeadline() {
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.23", now);
+        session.setExpiresAt(now.minus(Duration.ofMinutes(1)));
+        session.setLastAccessedAt(now.minus(Duration.ofMinutes(20)));
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        Optional<SpringSessionLiteSessionRemaining> result = service.remaining("sid");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().absoluteRemainingMs()).isZero();
+        assertThat(result.get().idleRemainingMs()).isZero();
     }
 }
