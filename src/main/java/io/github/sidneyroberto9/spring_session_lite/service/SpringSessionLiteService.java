@@ -89,17 +89,24 @@ public class SpringSessionLiteService {
         String sessionId = cookieManager.read(request);
 
         if (sessionId != null) {
-            store.deleteBySessionId(sessionId);
-            eventPublisher.publishEvent(new SpringSessionLiteSessionDestroyedEvent(sessionId));
+            logout(sessionId);
         }
 
         cookieManager.clear(response);
     }
 
+    /**
+     * Destroys the session and publishes {@link SpringSessionLiteSessionDestroyedEvent}. Looks the
+     * session up first (rather than deleting blind) so the event can carry {@code userId} — a
+     * no-op, no-event call when {@code sessionId} is already gone (e.g. a race with a concurrent
+     * logout), instead of publishing an event for a user nobody can identify.
+     */
     @Transactional
     public void logout(String sessionId) {
-        store.deleteBySessionId(sessionId);
-        eventPublisher.publishEvent(new SpringSessionLiteSessionDestroyedEvent(sessionId));
+        store.findBySessionId(sessionId).ifPresent(session -> {
+            store.deleteBySessionId(sessionId);
+            eventPublisher.publishEvent(new SpringSessionLiteSessionDestroyedEvent(session.getUserId(), sessionId));
+        });
     }
 
     @Transactional

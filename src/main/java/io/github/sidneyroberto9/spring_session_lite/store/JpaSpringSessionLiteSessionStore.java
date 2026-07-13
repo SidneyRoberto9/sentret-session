@@ -5,6 +5,7 @@ import io.github.sidneyroberto9.spring_session_lite.domain.SpringSessionLiteSess
 import lombok.RequiredArgsConstructor;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 
 @RequiredArgsConstructor
@@ -35,5 +36,10 @@ public class JpaSpringSessionLiteSessionStore implements SpringSessionLiteSessio
     @Override
     public void deleteExpired(Instant now) {
         repository.deleteByExpiresAtBefore(now);
+    }
+
+    @Override
+    public List<SpringSessionLiteSession> findActive(Instant now) {
+        return repository.findByExpiresAtAfter(now);
     }
 }

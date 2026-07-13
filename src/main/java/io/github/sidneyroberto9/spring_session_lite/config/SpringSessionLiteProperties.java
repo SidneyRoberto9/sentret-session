@@ -152,4 +152,15 @@ public class SpringSessionLiteProperties {
      * {@code true}.
      */
     private String endpointsBasePath = "/session";
+
+    /**
+     * Register the opt-in SSE push stack: {@code GET <endpoints-base-path>/stream}, the
+     * in-memory emitter registry/broadcaster, the idle-watch sweep (which pushes {@code warning}
+     * within {@link #warningBefore} and {@code logout} when idle/absolute expiry is crossed), and
+     * the listener that pushes {@code logout}/{@code renew} immediately on
+     * {@code SessionDestroyedEvent}/{@code SessionRenewedEvent}. Off by default; existing
+     * consumers are unaffected until they explicitly enable this. Independent of
+     * {@link #endpointsEnabled}/{@link #cleanupEnabled}.
+     */
+    private boolean sseEnabled = false;
 }
