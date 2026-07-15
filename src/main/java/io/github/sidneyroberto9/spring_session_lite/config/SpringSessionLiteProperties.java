@@ -58,33 +58,48 @@ public class SpringSessionLiteProperties {
     private int trustedProxyCount = 1;
 
     /**
-     * Whether to update last-accessed timestamp on each successful validation.
+     * Whether to update the last-accessed timestamp when activity is signalled. Since 2.1.1 the
+     * only activity signal is {@code POST /session/heartbeat} (which the frontend client fires from
+     * real DOM events): validation alone does not count, or the client's own {@code /status} poll
+     * would keep every session alive forever and {@link #maxIdle} could never elapse.
      */
     private boolean updateLastAccessed = true;
 
     /**
-     * Minimum interval between last-accessed writes (throttling), to avoid a DB write per request.
+     * @deprecated Since 2.1.2 this has no effect. It used to throttle last-accessed writes back when
+     * every authenticated request touched the session. Now only {@code POST /session/heartbeat}
+     * does, and the client already throttles that to {@link #heartbeatInterval} — so throttling
+     * again here only discarded real activity and logged active users out. Kept so existing
+     * configuration keeps binding; remove it from your properties.
      */
+    @Deprecated(since = "2.1.2", forRemoval = true)
     private Duration lastAccessedThrottle = Duration.ofMinutes(5);
 
     /**
      * Slide the expiration forward on activity (bounded by the same throttle as last-accessed).
+     * "Activity" means a heartbeat — see {@link #updateLastAccessed}.
      */
     private boolean slidingExpiration = false;
 
     /**
      * Maximum inactivity window before a session is considered idle-expired, evaluated in
      * {@code validate()} against {@code lastAccessedAt}. {@code null} or {@link Duration#ZERO}
-     * disables idle enforcement (default), preserving pre-2.1 behavior. When enabled, the
-     * effective last-accessed throttle is internally capped at {@code maxIdle / 2} regardless of
-     * {@link #lastAccessedThrottle}, so idle detection stays accurate to within half the idle
-     * window.
+     * disables idle enforcement (default), preserving pre-2.1 behavior.
+     *
+     * <p>Requires an activity signal to be useful: {@code lastAccessedAt} only moves on
+     * {@code POST /session/heartbeat} (see {@link #updateLastAccessed}). Enable this only for apps
+     * running the frontend client, or send the heartbeat yourself. Keep {@link #heartbeatInterval}
+     * well below this value — the client throttles heartbeats to that interval, so an interval
+     * close to {@code maxIdle} logs active users out. The library warns at startup when they are
+     * too close, or when {@link #warningBefore} is {@code >= maxIdle}.
      */
     private Duration maxIdle = Duration.ZERO;
 
     /**
      * How often the frontend client should send an activity heartbeat. Config-echo only — the
-     * library serves this via the session status endpoint and does not enforce it.
+     * library serves this via the session status endpoint and does not enforce it. Keep it
+     * comfortably below {@link #maxIdle}: since 2.1.1 the heartbeat is the only thing that resets
+     * the idle window, so a client that stops heartbeating goes idle even while in use.
      */
     private Duration heartbeatInterval = Duration.ofSeconds(60);
 

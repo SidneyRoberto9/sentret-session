@@ -24,7 +24,9 @@ import java.util.Optional;
  *       duplicating push logic;</li>
  *   <li>otherwise pushes a {@code warning} event, directly via {@link SessionEventBroadcaster},
  *       when within {@code warningBefore} of either deadline — there is no domain event for
- *       "about to expire", so this is the one case the task pushes itself.</li>
+ *       "about to expire", so this is the one case the task pushes itself. The warning is routed to
+ *       that session's own emitters: the sweep evaluates one session row at a time, so the routing
+ *       key and the payload's {@code sessionId} are the same value by construction.</li>
  * </ul>
  *
  * <p>This task's own candidate set ({@code store.findActive}, {@code expiresAt > now}) means it
@@ -50,10 +52,10 @@ public class SpringSessionLiteIdleWatchTask {
 
     private static final long FIXED_DELAY_MS = 10_000L;
 
-    private final SpringSessionLiteSessionStore store;
-    private final SpringSessionLiteService sessionService;
-    private final SpringSessionLiteProperties properties;
     private final SessionEventBroadcaster broadcaster;
+    private final SpringSessionLiteSessionStore store;
+    private final SpringSessionLiteProperties properties;
+    private final SpringSessionLiteService sessionService;
 
     @Scheduled(fixedDelay = FIXED_DELAY_MS)
     public void evaluate() {
@@ -68,7 +70,6 @@ public class SpringSessionLiteIdleWatchTask {
 
     private void evaluateSession(SpringSessionLiteSession session, long warningBeforeMs) {
         String sessionId = session.getSessionId();
-        String userId = session.getUserId();
 
         Optional<SpringSessionLiteSessionRemaining> remainingOpt = sessionService.remaining(sessionId);
 
@@ -101,6 +102,6 @@ public class SpringSessionLiteIdleWatchTask {
         long remainingMs = idleIsNearer ? idleRemainingMs : absoluteRemainingMs;
         String cause = idleIsNearer ? "idle" : "absolute";
 
-        broadcaster.warning(userId, new SpringSessionLiteSseWarningEvent(sessionId, remainingMs, absoluteRemainingMs, idleRemainingMs, cause));
+        broadcaster.sendWarning(sessionId, new SpringSessionLiteSseWarningEvent(sessionId, remainingMs, absoluteRemainingMs, idleRemainingMs, cause));
     }
 }

@@ -86,20 +86,69 @@ class SpringSessionLiteServiceTest {
     }
 
     @Test
-    void validateReturnsPresentAndResetsIdleClockWhenActivityWithinMaxIdle() {
-        // "atividade reseta": a session that is still inside the maxIdle window is not only kept
-        // alive, its lastAccessedAt is advanced to now, extending the idle deadline going forward.
+    void validateReturnsPresentButDoesNotResetIdleClockWithinMaxIdle() {
+        // A session inside the maxIdle window is kept alive, but validating it is NOT activity:
+        // lastAccessedAt must not move. Otherwise the client's own /status poll (every
+        // statusPollInterval, well under the effective throttle) would refresh the idle deadline
+        // forever and maxIdle could never elapse. Only touch() -- i.e. POST /session/heartbeat --
+        // resets the clock.
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.2", now);
+        Instant lastAccessed = now.minus(Duration.ofMinutes(9));
+        session.setLastAccessedAt(lastAccessed);
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        Optional<SpringSessionLiteUser> result = service.validate("sid", request("203.0.113.2"));
+
+        assertThat(result).isPresent();
+        assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
+        verify(store, never()).save(session);
+    }
+
+    @Test
+    void touchResetsIdleClock() {
+        // The heartbeat path: the one and only activity signal.
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
         SpringSessionLiteSession session = sessionFor("203.0.113.2", now);
         session.setLastAccessedAt(now.minus(Duration.ofMinutes(9)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        Optional<SpringSessionLiteUser> result = service.validate("sid", request("203.0.113.2"));
+        service.touch("sid");
 
-        assertThat(result).isPresent();
         assertThat(session.getLastAccessedAt()).isAfter(now.minus(Duration.ofSeconds(5)));
         verify(store).save(session);
+    }
+
+    @Test
+    void touchIsNoOpWhenSessionNotFound() {
+        when(store.findBySessionId("gone")).thenReturn(Optional.empty());
+
+        service.touch("gone");
+
+        verify(store, never()).save(any());
+    }
+
+    /**
+     * A poll cannot rescue a session that has gone idle, no matter how often it runs: the reproduction
+     * of the bug this behaviour exists to prevent.
+     */
+    @Test
+    void repeatedValidationNeverExtendsIdleWindow() {
+        properties.setMaxIdle(Duration.ofMinutes(2));
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.2", now);
+        Instant lastAccessed = now.minus(Duration.ofSeconds(90));
+        session.setLastAccessedAt(lastAccessed);
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        for (int i = 0; i < 10; i++) {
+            service.validate("sid", request("203.0.113.2"));
+        }
+
+        assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
+        verify(store, never()).save(any());
     }
 
     @Test
@@ -148,20 +197,61 @@ class SpringSessionLiteServiceTest {
         assertThat(service.validate("sid", request("203.0.113.6"))).isPresent();
     }
 
+    /**
+     * A heartbeat is never throttled away. This is the bug that logged active users out: the user
+     * moves the mouse while the inactivity warning is up, the client sends the heartbeat, and the
+     * server silently drops it because the previous touch was recent — so `lastAccessedAt` never
+     * moved, the idle-watch kept pushing `warning`, and the countdown ran to zero with the user
+     * sitting right there. The client already throttles heartbeats to `heartbeat-interval`; there
+     * is nothing left for this layer to protect against.
+     */
     @Test
-    void touchUsesEffectiveThrottleCappedAtHalfMaxIdle() {
-        // configured throttle (5m) is larger than maxIdle/2 (2m); the effective throttle must be
-        // capped at 2m so lastAccessedAt still advances 3 minutes after the last touch.
+    void touchAlwaysWritesEvenImmediatelyAfterAPreviousTouch() {
         properties.setMaxIdle(Duration.ofMinutes(4));
         properties.setLastAccessedThrottle(Duration.ofMinutes(5));
         Instant now = Instant.now();
         SpringSessionLiteSession session = sessionFor("203.0.113.7", now);
-        session.setLastAccessedAt(now.minus(Duration.ofMinutes(3)));
+        session.setLastAccessedAt(now.minus(Duration.ofSeconds(1)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        assertThat(service.validate("sid", request("203.0.113.7"))).isPresent();
+        service.touch("sid");
+
+        assertThat(session.getLastAccessedAt()).isAfter(now.minus(Duration.ofSeconds(1)));
+        verify(store).save(session);
+    }
+
+    @Test
+    void touchIsNotCappedByLastAccessedThrottle() {
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        properties.setLastAccessedThrottle(Duration.ofHours(1));
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.7", now);
+        session.setLastAccessedAt(now.minus(Duration.ofSeconds(5)));
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        service.touch("sid");
+
         assertThat(session.getLastAccessedAt()).isAfter(now.minus(Duration.ofSeconds(5)));
         verify(store).save(session);
+    }
+
+    /**
+     * The scenario end to end: a session one second away from idle expiry is fully rescued by a
+     * single heartbeat.
+     */
+    @Test
+    void touchRescuesSessionAboutToIdleExpire() {
+        properties.setMaxIdle(Duration.ofMinutes(2));
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.7", now);
+        session.setLastAccessedAt(now.minus(Duration.ofSeconds(119)));
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        service.touch("sid");
+
+        assertThat(service.validate("sid", request("203.0.113.7"))).isPresent();
+        assertThat(service.remaining("sid").orElseThrow().idleRemainingMs())
+                .isGreaterThan(Duration.ofSeconds(115).toMillis());
     }
 
     // --- renew(sessionId) ---

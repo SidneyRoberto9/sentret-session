@@ -20,8 +20,10 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
  * chain's {@code anyRequest().authenticated()} already protects any path not explicitly listed
  * there — no change to the security chain was needed for this endpoint.
  *
- * <p>The emitter is registered under the caller's {@code userId} in
- * {@link SpringSessionLiteSseRegistry}. This class only manages the HTTP/emitter lifecycle
+ * <p>The emitter is registered under the caller's {@code sessionId} in
+ * {@link SpringSessionLiteSseRegistry} — a second session of the same user (another device, another
+ * browser) is a separate key and never sees this stream's events. This class only manages the
+ * HTTP/emitter lifecycle
  * (creation, timeout, cleanup callbacks) — it never calls {@code SseEmitter#send}; all event
  * emission goes through {@link SessionEventBroadcaster} instead (the idle-watch task's periodic
  * ping keeps the connection alive; see {@code SpringSessionLiteIdleWatchTask}).
@@ -46,14 +48,14 @@ public class SpringSessionLiteSseController {
         // otherwise delay/batch events instead of pushing them as they're emitted.
         response.setHeader("X-Accel-Buffering", "no");
 
-        String userId = user.userId();
+        String sessionId = user.sessionId();
         SseEmitter emitter = new SseEmitter(NO_TIMEOUT);
 
-        registry.add(userId, emitter);
+        registry.add(sessionId, emitter);
 
-        emitter.onCompletion(() -> registry.remove(userId, emitter));
-        emitter.onTimeout(() -> registry.remove(userId, emitter));
-        emitter.onError(ex -> registry.remove(userId, emitter));
+        emitter.onCompletion(() -> registry.remove(sessionId, emitter));
+        emitter.onTimeout(() -> registry.remove(sessionId, emitter));
+        emitter.onError(ex -> registry.remove(sessionId, emitter));
 
         return emitter;
     }

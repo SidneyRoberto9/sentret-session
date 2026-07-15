@@ -25,8 +25,12 @@ public class SpringSessionLiteSecurityValidator implements InitializingBean {
         Duration maxIdle = properties.getMaxIdle();
         boolean idleEnabled = maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
 
-        if (idleEnabled && properties.getLastAccessedThrottle().compareTo(maxIdle.dividedBy(2)) >= 0) {
-            log.warn("[spring-session-lite] 'last-accessed-throttle' ({}) is >= half of 'max-idle' ({}). " + "The library caps the effective throttle at max-idle/2 internally so idle detection stays " + "accurate, but consider lowering 'spring-session-lite.last-accessed-throttle' explicitly.", properties.getLastAccessedThrottle(), maxIdle);
+        if (idleEnabled && properties.getHeartbeatInterval().compareTo(maxIdle.dividedBy(2)) >= 0) {
+            log.warn("[spring-session-lite] 'heartbeat-interval' ({}) is >= half of 'max-idle' ({}). " + "The heartbeat is the only thing that resets the idle window, and the client throttles it to " + "this interval — so an active user can be logged out anyway, and the warning can show while " + "they are still working. Set 'spring-session-lite.heartbeat-interval' well below 'max-idle' " + "(a quarter of it or less).", properties.getHeartbeatInterval(), maxIdle);
+        }
+
+        if (idleEnabled && properties.getWarningBefore().compareTo(maxIdle) >= 0) {
+            log.warn("[spring-session-lite] 'warning-before' ({}) is >= 'max-idle' ({}), so the inactivity " + "warning is inside its window from the moment the session starts and the client shows it " + "immediately. Set 'spring-session-lite.warning-before' below 'max-idle'.", properties.getWarningBefore(), maxIdle);
         }
     }
 }

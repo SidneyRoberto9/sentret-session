@@ -37,52 +37,88 @@ class SpringSessionLiteSecurityValidatorTest {
         new SpringSessionLiteSecurityValidator(properties).afterPropertiesSet();
     }
 
-    private List<ILoggingEvent> throttleWarnings() {
+    private List<ILoggingEvent> heartbeatWarnings() {
         return appender.list.stream()
-                .filter(event -> event.getFormattedMessage().contains("last-accessed-throttle"))
+                .filter(event -> event.getFormattedMessage().contains("'heartbeat-interval'"))
                 .toList();
     }
 
+    private List<ILoggingEvent> warningBeforeWarnings() {
+        return appender.list.stream()
+                .filter(event -> event.getFormattedMessage().contains("'warning-before'"))
+                .toList();
+    }
+
+    /**
+     * The heartbeat is the only thing that resets the idle window, and the client throttles it to
+     * `heartbeat-interval`. Too close to `max-idle` and an active user gets logged out anyway.
+     */
     @Test
-    void warnsWhenThrottleEqualsHalfMaxIdle() {
+    void warnsWhenHeartbeatIntervalEqualsHalfMaxIdle() {
         SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        properties.setLastAccessedThrottle(Duration.ofMinutes(5)); // == maxIdle / 2
+        properties.setMaxIdle(Duration.ofMinutes(2));
+        properties.setHeartbeatInterval(Duration.ofMinutes(1)); // == maxIdle / 2
 
         validate(properties);
 
-        assertThat(throttleWarnings()).hasSize(1);
+        assertThat(heartbeatWarnings()).hasSize(1);
     }
 
     @Test
-    void warnsWhenThrottleExceedsHalfMaxIdle() {
+    void warnsWhenHeartbeatIntervalExceedsHalfMaxIdle() {
         SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
-        properties.setMaxIdle(Duration.ofMinutes(4));
-        properties.setLastAccessedThrottle(Duration.ofMinutes(5)); // > maxIdle / 2 (2m)
+        properties.setMaxIdle(Duration.ofMinutes(1));
+        properties.setHeartbeatInterval(Duration.ofSeconds(60)); // == maxIdle: cannot ever rescue
 
         validate(properties);
 
-        assertThat(throttleWarnings()).hasSize(1);
+        assertThat(heartbeatWarnings()).hasSize(1);
     }
 
     @Test
-    void doesNotWarnWhenThrottleIsBelowHalfMaxIdle() {
+    void doesNotWarnWhenHeartbeatIntervalIsWellBelowMaxIdle() {
         SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
         properties.setMaxIdle(Duration.ofMinutes(10));
-        properties.setLastAccessedThrottle(Duration.ofMinutes(4)); // < maxIdle / 2 (5m)
+        properties.setHeartbeatInterval(Duration.ofMinutes(1));
 
         validate(properties);
 
-        assertThat(throttleWarnings()).isEmpty();
+        assertThat(heartbeatWarnings()).isEmpty();
     }
 
     @Test
     void doesNotWarnWhenMaxIdleDisabled() {
         SpringSessionLiteProperties properties = new SpringSessionLiteProperties(); // maxIdle = ZERO
-        properties.setLastAccessedThrottle(Duration.ofMinutes(5));
+        properties.setHeartbeatInterval(Duration.ofMinutes(30));
 
         validate(properties);
 
-        assertThat(throttleWarnings()).isEmpty();
+        assertThat(heartbeatWarnings()).isEmpty();
+    }
+
+    /**
+     * `warning-before >= max-idle` makes the warning window cover the whole session, so the card
+     * shows from the moment the user logs in.
+     */
+    @Test
+    void warnsWhenWarningBeforeCoversWholeIdleWindow() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setMaxIdle(Duration.ofMinutes(1));
+        properties.setWarningBefore(Duration.ofSeconds(60)); // == maxIdle
+
+        validate(properties);
+
+        assertThat(warningBeforeWarnings()).hasSize(1);
+    }
+
+    @Test
+    void doesNotWarnWhenWarningBeforeIsBelowMaxIdle() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setMaxIdle(Duration.ofMinutes(2));
+        properties.setWarningBefore(Duration.ofSeconds(30));
+
+        validate(properties);
+
+        assertThat(warningBeforeWarnings()).isEmpty();
     }
 }

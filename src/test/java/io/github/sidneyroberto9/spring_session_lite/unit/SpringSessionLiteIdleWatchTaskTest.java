@@ -83,7 +83,7 @@ class SpringSessionLiteIdleWatchTaskTest {
         SpringSessionLiteService sessionService = new SpringSessionLiteService(ipHasher, store, properties, ipResolver, eventPublisher, cookieManager);
         listenerRef[0] = new SpringSessionLiteSseSessionEventListener(broadcaster, sessionService);
 
-        task = new SpringSessionLiteIdleWatchTask(store, sessionService, properties, broadcaster);
+        task = new SpringSessionLiteIdleWatchTask(broadcaster, store, properties, sessionService);
 
         emitter = mock(SseEmitter.class);
     }
@@ -101,13 +101,31 @@ class SpringSessionLiteIdleWatchTaskTest {
     }
 
     private void stubActiveSession(SpringSessionLiteSession session) {
-        when(store.findActive(any())).thenReturn(List.of(session));
-        when(store.findBySessionId(session.getSessionId())).thenReturn(Optional.of(session));
+        stubActiveSessions(session);
+    }
+
+    private void stubActiveSessions(SpringSessionLiteSession... sessions) {
+        when(store.findActive(any())).thenReturn(List.of(sessions));
+
+        for (SpringSessionLiteSession session : sessions) {
+            when(store.findBySessionId(session.getSessionId())).thenReturn(Optional.of(session));
+        }
     }
 
     private Set<ResponseBodyEmitter.DataWithMediaType> capturedEventNamed(String name) throws IOException {
+        return capturedEventNamed(emitter, name);
+    }
+
+    /**
+     * Asserts on the <em>named</em> events a specific emitter received, never on the absence of any
+     * interaction: {@code evaluate()} ends with {@code broadcaster.pingAll()}, so every connected
+     * emitter — bystanders included — legitimately gets a keep-alive comment. {@code verifyNoInteractions}
+     * would therefore fail on a correctly-isolated bystander. Returns {@code null} when no event of
+     * that name was sent to {@code target}.
+     */
+    private Set<ResponseBodyEmitter.DataWithMediaType> capturedEventNamed(SseEmitter target, String name) throws IOException {
         ArgumentCaptor<SseEmitter.SseEventBuilder> captor = ArgumentCaptor.forClass(SseEmitter.SseEventBuilder.class);
-        verify(emitter, org.mockito.Mockito.atLeastOnce()).send(captor.capture());
+        verify(target, org.mockito.Mockito.atLeastOnce()).send(captor.capture());
 
         return captor.getAllValues().stream()
                 .map(SseEmitter.SseEventBuilder::build)
@@ -137,7 +155,7 @@ class SpringSessionLiteIdleWatchTaskTest {
         Instant now = Instant.now();
         SpringSessionLiteSession session = session("user-1", "sid-1", now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(11)));
         stubActiveSession(session);
-        registry.add("user-1", emitter);
+        registry.add("sid-1", emitter);
 
         task.evaluate();
 
@@ -160,7 +178,7 @@ class SpringSessionLiteIdleWatchTaskTest {
         Instant now = Instant.now();
         SpringSessionLiteSession session = session("user-2", "sid-2", now.minus(Duration.ofSeconds(1)), now.minus(Duration.ofMinutes(1)));
         stubActiveSession(session);
-        registry.add("user-2", emitter);
+        registry.add("sid-2", emitter);
 
         task.evaluate();
 
@@ -180,7 +198,7 @@ class SpringSessionLiteIdleWatchTaskTest {
         // idle deadline = lastAccessedAt(now-9m30s) + maxIdle(10m) = now+30s -> inside the 60s window
         SpringSessionLiteSession session = session("user-3", "sid-3", now.plus(Duration.ofHours(2)), now.minus(Duration.ofSeconds(9 * 60 + 30)));
         stubActiveSession(session);
-        registry.add("user-3", emitter);
+        registry.add("sid-3", emitter);
 
         task.evaluate();
 
@@ -202,7 +220,7 @@ class SpringSessionLiteIdleWatchTaskTest {
         Instant now = Instant.now();
         SpringSessionLiteSession session = session("user-4", "sid-4", now.plus(Duration.ofSeconds(30)), now);
         stubActiveSession(session);
-        registry.add("user-4", emitter);
+        registry.add("sid-4", emitter);
 
         task.evaluate();
 
@@ -223,12 +241,78 @@ class SpringSessionLiteIdleWatchTaskTest {
         Instant now = Instant.now();
         SpringSessionLiteSession session = session("user-5", "sid-5", now.plus(Duration.ofHours(1)), now);
         stubActiveSession(session);
-        registry.add("user-5", emitter);
+        registry.add("sid-5", emitter);
 
         task.evaluate();
 
         verify(store, never()).deleteBySessionId(any());
         assertThat(capturedEventNamed("logout")).isNull();
         assertThat(capturedEventNamed("warning")).isNull();
+    }
+
+    // --- one user, two sessions: the reported incident, through the real production path ---
+
+    /**
+     * A session orphaned by a double-login receives no heartbeat and drifts into the warning window
+     * while the user works happily in another session. Routing by userId pushed that warning to the
+     * live tab, which then showed an inactivity countdown it could not dismiss — clicking "Continuar
+     * conectado" renewed the *cookie's* session, so the orphan kept re-warning every 10s and the
+     * modal came straight back.
+     */
+    @Test
+    void evaluateWarnsOnlyTheIdleSessionsOwnTabNotAnotherSessionOfTheSameUser() throws IOException {
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        properties.setWarningBefore(Duration.ofSeconds(60));
+        Instant now = Instant.now();
+
+        SseEmitter liveTabEmitter = mock(SseEmitter.class);
+        SpringSessionLiteSession orphan = session("user-1", "sid-orphan", now.plus(Duration.ofHours(2)), now.minus(Duration.ofSeconds(9 * 60 + 30)));
+        SpringSessionLiteSession live = session("user-1", "sid-live", now.plus(Duration.ofHours(2)), now);
+        stubActiveSessions(orphan, live);
+        registry.add("sid-orphan", emitter);
+        registry.add("sid-live", liveTabEmitter);
+
+        task.evaluate();
+
+        Set<ResponseBodyEmitter.DataWithMediaType> warningEvent = capturedEventNamed(emitter, "warning");
+        assertThat(warningEvent).as("the idle session's own tab must be warned").isNotNull();
+        assertThat(nonStringPayloadOf(warningEvent, SpringSessionLiteSseWarningEvent.class).sessionId()).isEqualTo("sid-orphan");
+
+        assertThat(capturedEventNamed(liveTabEmitter, "warning"))
+                .as("the live session's tab must not be warned about another session")
+                .isNull();
+    }
+
+    /**
+     * The end of that same story, and the worst of it: when the orphan finally crosses maxIdle the
+     * sweep destroys it, and routing the resulting {@code logout} by userId terminated the live tab
+     * too — POSTing its app logout URL and redirecting a user who was actively typing. Driven here
+     * through the real path: sweep -> service.logout -> SessionDestroyedEvent -> listener ->
+     * broadcaster.
+     */
+    @Test
+    void evaluateDestroysIdleSessionWithoutLoggingOutAnotherSessionOfTheSameUser() throws IOException {
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        Instant now = Instant.now();
+
+        SseEmitter liveTabEmitter = mock(SseEmitter.class);
+        SpringSessionLiteSession orphan = session("user-1", "sid-orphan", now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(11)));
+        SpringSessionLiteSession live = session("user-1", "sid-live", now.plus(Duration.ofHours(1)), now);
+        stubActiveSessions(orphan, live);
+        registry.add("sid-orphan", emitter);
+        registry.add("sid-live", liveTabEmitter);
+
+        task.evaluate();
+
+        verify(store).deleteBySessionId("sid-orphan");
+        verify(store, never()).deleteBySessionId("sid-live");
+
+        Set<ResponseBodyEmitter.DataWithMediaType> logoutEvent = capturedEventNamed(emitter, "logout");
+        assertThat(logoutEvent).as("the destroyed session's own tab must be told").isNotNull();
+        assertThat(nonStringPayloadOf(logoutEvent, SpringSessionLiteSseLogoutEvent.class).sessionId()).isEqualTo("sid-orphan");
+
+        assertThat(capturedEventNamed(liveTabEmitter, "logout"))
+                .as("a live session must never be logged out by another session expiring")
+                .isNull();
     }
 }

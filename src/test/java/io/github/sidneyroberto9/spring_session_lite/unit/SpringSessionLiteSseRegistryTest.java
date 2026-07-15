@@ -12,66 +12,84 @@ class SpringSessionLiteSseRegistryTest {
     private final SpringSessionLiteSseRegistry registry = new SpringSessionLiteSseRegistry();
 
     @Test
-    void emittersForReturnsEmptyListWhenUserHasNoEmitter() {
-        assertThat(registry.emittersFor("user-1")).isEmpty();
+    void emittersForSessionReturnsEmptyListWhenSessionHasNoEmitter() {
+        assertThat(registry.emittersForSession("sid-1")).isEmpty();
     }
 
     @Test
-    void addRegistersEmitterUnderUserId() {
+    void addRegistersEmitterUnderSessionId() {
         SseEmitter emitter = mock(SseEmitter.class);
 
-        registry.add("user-1", emitter);
+        registry.add("sid-1", emitter);
 
-        assertThat(registry.emittersFor("user-1")).containsExactly(emitter);
-        assertThat(registry.connectedUserIds()).containsExactly("user-1");
+        assertThat(registry.emittersForSession("sid-1")).containsExactly(emitter);
+        assertThat(registry.connectedSessionIds()).containsExactly("sid-1");
     }
 
+    /** Two tabs sharing one session cookie: one key, two emitters. A logout does apply to both. */
     @Test
-    void addAllowsMultipleEmittersForTheSameUser() {
+    void addAllowsMultipleEmittersForTheSameSession() {
         SseEmitter first = mock(SseEmitter.class);
         SseEmitter second = mock(SseEmitter.class);
 
-        registry.add("user-1", first);
-        registry.add("user-1", second);
+        registry.add("sid-1", first);
+        registry.add("sid-1", second);
 
-        assertThat(registry.emittersFor("user-1")).containsExactlyInAnyOrder(first, second);
+        assertThat(registry.emittersForSession("sid-1")).containsExactlyInAnyOrder(first, second);
+    }
+
+    /**
+     * The keying that the whole fix rests on: one user on two devices is two independent keys.
+     * Sharing a key is what let one session's logout terminate the other.
+     */
+    @Test
+    void twoSessionsOfTheSameUserAreIndependentKeys() {
+        SseEmitter deviceA = mock(SseEmitter.class);
+        SseEmitter deviceB = mock(SseEmitter.class);
+
+        registry.add("sid-device-a", deviceA);
+        registry.add("sid-device-b", deviceB);
+
+        assertThat(registry.emittersForSession("sid-device-a")).containsExactly(deviceA);
+        assertThat(registry.emittersForSession("sid-device-b")).containsExactly(deviceB);
+        assertThat(registry.connectedSessionIds()).containsExactlyInAnyOrder("sid-device-a", "sid-device-b");
     }
 
     @Test
     void removeDropsOnlyTheGivenEmitter() {
         SseEmitter first = mock(SseEmitter.class);
         SseEmitter second = mock(SseEmitter.class);
-        registry.add("user-1", first);
-        registry.add("user-1", second);
+        registry.add("sid-1", first);
+        registry.add("sid-1", second);
 
-        registry.remove("user-1", first);
+        registry.remove("sid-1", first);
 
-        assertThat(registry.emittersFor("user-1")).containsExactly(second);
+        assertThat(registry.emittersForSession("sid-1")).containsExactly(second);
     }
 
     @Test
-    void removeLastEmitterDropsTheUserFromConnectedUserIds() {
+    void removeLastEmitterDropsTheSessionFromConnectedSessionIds() {
         SseEmitter emitter = mock(SseEmitter.class);
-        registry.add("user-1", emitter);
+        registry.add("sid-1", emitter);
 
-        registry.remove("user-1", emitter);
+        registry.remove("sid-1", emitter);
 
-        assertThat(registry.emittersFor("user-1")).isEmpty();
-        assertThat(registry.connectedUserIds()).doesNotContain("user-1");
+        assertThat(registry.emittersForSession("sid-1")).isEmpty();
+        assertThat(registry.connectedSessionIds()).doesNotContain("sid-1");
     }
 
     @Test
-    void removeIsNoOpWhenUserOrEmitterUnknown() {
-        registry.remove("missing-user", mock(SseEmitter.class));
+    void removeIsNoOpWhenSessionOrEmitterUnknown() {
+        registry.remove("missing-session", mock(SseEmitter.class));
 
-        assertThat(registry.connectedUserIds()).isEmpty();
+        assertThat(registry.connectedSessionIds()).isEmpty();
     }
 
     @Test
-    void connectedUserIdsReflectsAllUsersWithLiveEmitters() {
-        registry.add("user-1", mock(SseEmitter.class));
-        registry.add("user-2", mock(SseEmitter.class));
+    void connectedSessionIdsReflectsAllSessionsWithLiveEmitters() {
+        registry.add("sid-1", mock(SseEmitter.class));
+        registry.add("sid-2", mock(SseEmitter.class));
 
-        assertThat(registry.connectedUserIds()).containsExactlyInAnyOrder("user-1", "user-2");
+        assertThat(registry.connectedSessionIds()).containsExactlyInAnyOrder("sid-1", "sid-2");
     }
 }

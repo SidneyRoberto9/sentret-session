@@ -5,6 +5,7 @@ import io.github.sidneyroberto9.spring_session_lite.domain.SpringSessionLiteSess
 import io.github.sidneyroberto9.spring_session_lite.domain.SpringSessionLiteSessionRepository;
 import io.github.sidneyroberto9.spring_session_lite.sample.SampleApplication;
 import io.github.sidneyroberto9.spring_session_lite.sample.SampleController;
+import io.github.sidneyroberto9.spring_session_lite.web.sse.SpringSessionLiteSseRegistry;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -53,6 +54,9 @@ class SpringSessionLiteSseIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Autowired
+    private SpringSessionLiteSseRegistry registry;
 
     @BeforeEach
     void cleanDb() {
@@ -124,5 +128,41 @@ class SpringSessionLiteSseIntegrationTest {
                 .andReturn();
 
         assertThat(result.getResponse().getHeader("X-Accel-Buffering")).isEqualTo("no");
+    }
+
+    /**
+     * The routing key, asserted from outside: the {@code SLSID} cookie value <em>is</em> the
+     * sessionId ({@code SpringSessionLiteService#login} writes {@code session.getSessionId()} into
+     * it), so a stream's registry key is observable over HTTP. Until 2.2.0 the emitter went under
+     * the userId, which is what delivered one session's events to another's tab.
+     */
+    @Test
+    void streamRegistersEmitterUnderTheSessionIdNotTheUserId() throws Exception {
+        Cookie cookie = login("user1", "user1@test.com");
+
+        mockMvc.perform(get("/session/stream").cookie(cookie)).andExpect(request().asyncStarted());
+
+        assertThat(registry.emittersForSession(cookie.getValue())).hasSize(1);
+        assertThat(registry.connectedSessionIds()).contains(cookie.getValue()).doesNotContain("user1");
+    }
+
+    /**
+     * Two logins by the same user — the double-login that produced the orphan row in production, and
+     * equally two devices — must occupy two independent keys.
+     */
+    @Test
+    void twoSessionsOfTheSameUserRegisterUnderTwoDistinctKeys() throws Exception {
+        Cookie first = login("user1", "user1@test.com");
+        Cookie second = login("user1", "user1@test.com");
+        assertThat(first.getValue()).isNotEqualTo(second.getValue());
+
+        mockMvc.perform(get("/session/stream").cookie(first)).andExpect(request().asyncStarted());
+        mockMvc.perform(get("/session/stream").cookie(second)).andExpect(request().asyncStarted());
+
+        // Never containsExactly on connectedSessionIds(): the registry is a context-scoped
+        // singleton that cleanDb() does not reset, so emitters leak in from sibling tests.
+        assertThat(registry.emittersForSession(first.getValue())).hasSize(1);
+        assertThat(registry.emittersForSession(second.getValue())).hasSize(1);
+        assertThat(registry.connectedSessionIds()).contains(first.getValue(), second.getValue());
     }
 }

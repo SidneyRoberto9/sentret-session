@@ -55,7 +55,21 @@ public class SpringSessionLiteService {
         return toUser(session);
     }
 
-    @Transactional
+    /**
+     * Validates the session and reports who it belongs to, without counting the request as user
+     * activity.
+     *
+     * <p>Deliberately does <strong>not</strong> {@link #touch(String)}: the frontend client
+     * observes the session in the background (it polls {@code GET /session/status} every
+     * {@code statusPollInterval} and holds {@code GET /session/stream} open), and those requests
+     * are indistinguishable from any other here. Touching on every authenticated request made the
+     * idle clock unreachable — with the effective throttle capped at {@code maxIdle / 2}, a poll
+     * that is more frequent than that refreshes {@code lastAccessedAt} forever and {@code maxIdle}
+     * never elapses. Activity is now signalled explicitly, and only, by
+     * {@code POST /session/heartbeat} (see {@link #touch(String)}), which the client fires from
+     * real DOM events.
+     */
+    @Transactional(readOnly = true)
     public Optional<SpringSessionLiteUser> validate(String sessionId, HttpServletRequest request) {
         return store.findBySessionId(sessionId).flatMap(session -> {
             Instant now = Instant.now();
@@ -78,10 +92,21 @@ public class SpringSessionLiteService {
                 return Optional.empty();
             }
 
-            this.touch(session, now);
-
             return Optional.of(this.toUser(session));
         });
+    }
+
+    /**
+     * Records real user activity against the session, resetting the idle window (and sliding the
+     * absolute expiry when {@code sliding-expiration} is on). The sole activity signal in the
+     * library — {@code POST /session/heartbeat} calls this; {@link #validate} intentionally does
+     * not. Every call writes: the client already throttles heartbeats to {@code heartbeat-interval},
+     * so write volume is bounded there rather than here — and throttling a heartbeat would discard
+     * the only activity signal the library has. A no-op when {@code sessionId} is unknown.
+     */
+    @Transactional
+    public void touch(String sessionId) {
+        store.findBySessionId(sessionId).ifPresent(session -> this.touch(session, Instant.now()));
     }
 
     @Transactional
@@ -173,19 +198,21 @@ public class SpringSessionLiteService {
         });
     }
 
+    /**
+     * Records activity unconditionally — no throttle.
+     *
+     * <p>Until 2.1.1 this was throttled to {@code min(last-accessed-throttle, max-idle / 2)}, back
+     * when every authenticated request landed here and the throttle was what kept it from being a
+     * DB write per request. Now that only {@code POST /session/heartbeat} reaches it, throttling
+     * here is pure loss: it silently discards the one activity signal the system has, so a user
+     * moving the mouse inside the throttle window did not extend their session and got logged out
+     * while active. Write amplification is already bounded on the client side, which throttles
+     * heartbeats to {@code heartbeat-interval} — at most one write per session per interval.
+     */
     private void touch(SpringSessionLiteSession session, Instant now) {
         boolean idleEnabled = isIdleEnabled();
 
         if (!properties.isUpdateLastAccessed() && !properties.isSlidingExpiration() && !idleEnabled) {
-            return;
-        }
-
-        Instant last = session.getLastAccessedAt();
-        Duration throttle = effectiveLastAccessedThrottle();
-
-        boolean withinThrottle = last != null && last.plus(throttle).isAfter(now);
-
-        if (withinThrottle) {
             return;
         }
 
@@ -203,18 +230,6 @@ public class SpringSessionLiteService {
     private boolean isIdleEnabled() {
         Duration maxIdle = properties.getMaxIdle();
         return maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
-    }
-
-    private Duration effectiveLastAccessedThrottle() {
-        Duration configured = properties.getLastAccessedThrottle();
-
-        if (!isIdleEnabled()) {
-            return configured;
-        }
-
-        Duration halfMaxIdle = properties.getMaxIdle().dividedBy(2);
-
-        return configured.compareTo(halfMaxIdle) <= 0 ? configured : halfMaxIdle;
     }
 
     private SpringSessionLiteUser toUser(SpringSessionLiteSession session) {

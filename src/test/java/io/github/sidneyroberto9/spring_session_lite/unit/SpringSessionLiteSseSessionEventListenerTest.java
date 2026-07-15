@@ -90,8 +90,8 @@ class SpringSessionLiteSseSessionEventListenerTest {
     }
 
     @Test
-    void onSessionDestroyedPushesLogoutImmediatelyToTheDestroyedSessionsUser() throws IOException {
-        registry.add("user-1", emitter);
+    void onSessionDestroyedPushesLogoutImmediatelyToTheDestroyedSession() throws IOException {
+        registry.add("sid-1", emitter);
 
         listener.onSessionDestroyed(new SpringSessionLiteSessionDestroyedEvent("user-1", "sid-1"));
 
@@ -100,13 +100,71 @@ class SpringSessionLiteSseSessionEventListenerTest {
     }
 
     @Test
-    void onSessionDestroyedDoesNotPushToOtherUsers() {
+    void onSessionDestroyedDoesNotPushToOtherSessions() {
         SseEmitter otherUsersEmitter = mock(SseEmitter.class);
-        registry.add("user-2", otherUsersEmitter);
+        registry.add("sid-other-user", otherUsersEmitter);
 
         listener.onSessionDestroyed(new SpringSessionLiteSessionDestroyedEvent("user-1", "sid-1"));
 
         org.mockito.Mockito.verifyNoInteractions(otherUsersEmitter);
+    }
+
+    /**
+     * The reported production incident, reduced. One user, two sessions: an orphan left behind by a
+     * double-login, and the live one the user is actually working in. The orphan gets no heartbeat,
+     * goes idle, and the sweep destroys it — which must not touch the live session's tab.
+     *
+     * <p>Routing on {@code userId} sent this {@code logout} to every tab of the user, so the live
+     * tab terminated, POSTed its app logout URL and redirected: a session with 3s of idle killed by
+     * an unrelated row. An event describes exactly one session and must reach only that session.
+     */
+    @Test
+    void onSessionDestroyedDoesNotTerminateAnotherSessionOfTheSameUser() throws IOException {
+        SseEmitter liveTabEmitter = mock(SseEmitter.class);
+        registry.add("sid-orphan", emitter);
+        registry.add("sid-live", liveTabEmitter);
+
+        listener.onSessionDestroyed(new SpringSessionLiteSessionDestroyedEvent("user-1", "sid-orphan"));
+
+        assertThat(eventNamed("logout", SpringSessionLiteSseLogoutEvent.class).sessionId()).isEqualTo("sid-orphan");
+        org.mockito.Mockito.verifyNoInteractions(liveTabEmitter);
+    }
+
+    @Test
+    void onSessionRenewedDoesNotPushToAnotherSessionOfTheSameUser() throws IOException {
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = new SpringSessionLiteSession();
+        session.setSessionId("sid-renewed");
+        session.setUserId("user-1");
+        session.setIpHash("irrelevant");
+        session.setCreatedAt(now.minus(Duration.ofHours(1)));
+        session.setLastAccessedAt(now);
+        session.setExpiresAt(now.plus(Duration.ofMinutes(30)));
+        when(store.findBySessionId("sid-renewed")).thenReturn(Optional.of(session));
+
+        SseEmitter otherTabEmitter = mock(SseEmitter.class);
+        registry.add("sid-renewed", emitter);
+        registry.add("sid-other", otherTabEmitter);
+
+        listener.onSessionRenewed(new SpringSessionLiteSessionRenewedEvent("user-1", "sid-renewed", now));
+
+        assertThat(eventNamed("renew", SpringSessionLiteSseRenewEvent.class).sessionId()).isEqualTo("sid-renewed");
+        org.mockito.Mockito.verifyNoInteractions(otherTabEmitter);
+    }
+
+    /**
+     * {@link SpringSessionLiteSessionDestroyedEvent} keeps a 1-arg constructor that leaves
+     * {@code userId} null for pre-2.1 compatibility. Routing on it meant
+     * {@code ConcurrentHashMap.get(null)} — an NPE thrown inside a synchronous {@code @EventListener},
+     * straight back into the publisher's transaction. The sessionId is never null.
+     */
+    @Test
+    void onSessionDestroyedWithLegacyNullUserIdStillRoutesBySessionId() throws IOException {
+        registry.add("sid-legacy", emitter);
+
+        listener.onSessionDestroyed(new SpringSessionLiteSessionDestroyedEvent("sid-legacy"));
+
+        assertThat(eventNamed("logout", SpringSessionLiteSseLogoutEvent.class).sessionId()).isEqualTo("sid-legacy");
     }
 
     @Test
@@ -121,7 +179,7 @@ class SpringSessionLiteSseSessionEventListenerTest {
         session.setExpiresAt(now.plus(Duration.ofMinutes(30)));
         when(store.findBySessionId("sid-2")).thenReturn(Optional.of(session));
 
-        registry.add("user-3", emitter);
+        registry.add("sid-2", emitter);
 
         listener.onSessionRenewed(new SpringSessionLiteSessionRenewedEvent("user-3", "sid-2", now));
 
@@ -134,7 +192,7 @@ class SpringSessionLiteSseSessionEventListenerTest {
     @Test
     void onSessionRenewedFallsBackToZeroWhenSessionAlreadyGone() throws IOException {
         when(store.findBySessionId("sid-missing")).thenReturn(Optional.empty());
-        registry.add("user-4", emitter);
+        registry.add("sid-missing", emitter);
 
         listener.onSessionRenewed(new SpringSessionLiteSessionRenewedEvent("user-4", "sid-missing", Instant.now()));
 

@@ -20,6 +20,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -124,8 +125,8 @@ class SpringSessionLiteSessionControllerIntegrationTest {
         String sessionId = sessionIdFrom(cookie);
 
         // Push lastAccessedAt beyond the effective throttle (min(5m default, maxIdle/2=5m) = 5m)
-        // so the filter's touch() on the heartbeat request actually advances it, instead of being
-        // throttled away.
+        // so the controller's touch() on the heartbeat request actually advances it, instead of
+        // being throttled away.
         Instant staleLastAccessed = Instant.now().minus(6, ChronoUnit.MINUTES);
         sessionRepository.findBySessionId(sessionId).ifPresent(s -> {
             s.setLastAccessedAt(staleLastAccessed);
@@ -145,6 +146,58 @@ class SpringSessionLiteSessionControllerIntegrationTest {
     @Test
     void heartbeatWithoutCookieReturns401() throws Exception {
         mockMvc.perform(post("/session/heartbeat"))
+                .andExpect(status().isUnauthorized());
+    }
+
+    /**
+     * The client polls {@code GET /session/status} every {@code statusPollInterval} (30s by
+     * default) whether or not the user is there. Over real HTTP — filter chain included — that poll
+     * must leave {@code lastAccessedAt} untouched, or {@code maxIdle} is unreachable: with the
+     * effective throttle capped at {@code maxIdle / 2}, a poll more frequent than that refreshes
+     * the idle deadline forever and the session never expires.
+     */
+    @Test
+    void statusPollDoesNotAdvanceLastAccessedAt() throws Exception {
+        Cookie cookie = login("user-poll", "poll@test.com", List.of());
+        String sessionId = sessionIdFrom(cookie);
+
+        // Well past the effective throttle (5m): a touch here would definitely fire and be visible.
+        Instant staleLastAccessed = Instant.now().minus(6, ChronoUnit.MINUTES);
+        sessionRepository.findBySessionId(sessionId).ifPresent(s -> {
+            s.setLastAccessedAt(staleLastAccessed);
+            sessionRepository.save(s);
+        });
+
+        for (int i = 0; i < 5; i++) {
+            mockMvc.perform(get("/session/status").cookie(cookie))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.authenticated").value(true));
+        }
+
+        Instant after = sessionRepository.findBySessionId(sessionId).orElseThrow().getLastAccessedAt();
+        assertThat(after).isCloseTo(staleLastAccessed, within(1, ChronoUnit.SECONDS));
+    }
+
+    /**
+     * The observable end of the bug: an idle-expired session must not be resurrected by the poll
+     * that is supposed to be watching it die.
+     */
+    @Test
+    void statusPollDoesNotRescueIdleExpiredSession() throws Exception {
+        Cookie cookie = login("user-idle", "idle@test.com", List.of());
+        String sessionId = sessionIdFrom(cookie);
+
+        // Idle for 11m against max-idle=10m: already past the window.
+        sessionRepository.findBySessionId(sessionId).ifPresent(s -> {
+            s.setLastAccessedAt(Instant.now().minus(11, ChronoUnit.MINUTES));
+            sessionRepository.save(s);
+        });
+
+        mockMvc.perform(get("/session/status").cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.authenticated").value(false));
+
+        mockMvc.perform(post("/session/heartbeat").cookie(cookie))
                 .andExpect(status().isUnauthorized());
     }
 

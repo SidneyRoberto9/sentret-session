@@ -73,7 +73,7 @@ public class SpringSessionLiteSseAutoConfiguration {
             SpringSessionLiteProperties properties,
             SessionEventBroadcaster broadcaster
     ) {
-        return new SpringSessionLiteIdleWatchTask(store, sessionService, properties, broadcaster);
+        return new SpringSessionLiteIdleWatchTask(broadcaster, store, properties, sessionService);
     }
 
     @Bean

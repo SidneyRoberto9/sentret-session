@@ -28,10 +28,11 @@ import java.util.List;
  * {@code SpringSessionLiteAutoConfiguration#sessionLiteSecurityFilterChain}); heartbeat/renew/logout
  * require authentication, enforced by the default security chain rather than by code here.
  *
- * <p>Activity tracking ({@code touch()}) already happens on every authenticated request inside
- * {@code SpringSessionLiteAuthenticationFilter} (via {@code SpringSessionLiteService#validate}), so
- * {@link #heartbeat(SpringSessionLiteUser)} does not call it again — it only reports the status
- * that resulted from the filter's touch earlier in this same request.
+ * <p>Activity tracking ({@code touch()}) is explicit and lives here:
+ * {@link #heartbeat(SpringSessionLiteUser)} is the only endpoint that calls it. The authentication
+ * filter (via {@code SpringSessionLiteService#validate}) deliberately does not touch, so that the
+ * client's own {@code /status} poll and {@code /stream} connection cannot keep an idle session
+ * alive forever.
  */
 @RestController
 @RequestMapping("${spring-session-lite.endpoints-base-path:/session}")
@@ -48,8 +49,20 @@ public class SpringSessionLiteSessionController {
         return ResponseEntity.ok(buildStatus(user));
     }
 
+    /**
+     * The library's only user-activity signal. The client fires this from real DOM events
+     * (throttled to {@code heartbeatInterval}), so this is the one place that resets the idle
+     * window — {@code SpringSessionLiteService#validate} does not, or the client's own
+     * {@code /status} poll would keep every session alive forever.
+     */
     @PostMapping("/heartbeat")
     public ResponseEntity<SessionStatusResponse> heartbeat(@SpringSessionLiteCurrentSession SpringSessionLiteUser user) {
+        if (user == null) {
+            return ResponseEntity.ok(buildStatus(null));
+        }
+
+        sessionService.touch(user.sessionId());
+
         return ResponseEntity.ok(buildStatus(user));
     }
 

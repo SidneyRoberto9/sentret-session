@@ -25,7 +25,7 @@ public class SpringSessionLiteSseSessionEventListener {
 
     @EventListener
     public void onSessionDestroyed(SpringSessionLiteSessionDestroyedEvent event) {
-        broadcaster.logout(event.userId(), new SpringSessionLiteSseLogoutEvent(event.sessionId()));
+        broadcaster.sendLogout(event.sessionId(), new SpringSessionLiteSseLogoutEvent(event.sessionId()));
     }
 
     @EventListener
@@ -35,6 +35,6 @@ public class SpringSessionLiteSseSessionEventListener {
         long absoluteRemainingMs = remaining.map(SpringSessionLiteSessionRemaining::absoluteRemainingMs).orElse(0L);
         Long idleRemainingMs = remaining.map(SpringSessionLiteSessionRemaining::idleRemainingMs).orElse(null);
 
-        broadcaster.renew(event.userId(), new SpringSessionLiteSseRenewEvent(event.sessionId(), absoluteRemainingMs, idleRemainingMs));
+        broadcaster.sendRenew(event.sessionId(), new SpringSessionLiteSseRenewEvent(event.sessionId(), absoluteRemainingMs, idleRemainingMs));
     }
 }

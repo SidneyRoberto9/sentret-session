@@ -1,9 +1,16 @@
 package io.github.sidneyroberto9.spring_session_lite.web.sse;
 
 /**
- * Abstraction over "push an SSE event to every live connection of a user". All SSE emission in
+ * Abstraction over "push an SSE event to every live connection of a session". All SSE emission in
  * this library flows through this interface — the controller and the idle-watch task never call
  * {@code SseEmitter#send} directly, only these methods.
+ *
+ * <p><strong>Contract:</strong> the {@code sessionId} argument is a session identifier, never a
+ * userId. An implementation must deliver only to connections authenticated by that exact session.
+ * User-wide fan-out is explicitly not part of this contract: each event describes exactly one
+ * session, and a peer session of the same user cannot tell the event is not its own (a browser
+ * cannot learn its own sessionId). Delivering wider than the session logs out users who are
+ * actively working — see {@link SpringSessionLiteSseRegistry}.
  *
  * <p>{@link InMemorySessionEventBroadcaster} is the single-instance default implementation,
  * backed by {@link SpringSessionLiteSseRegistry}. This interface is the extension point a
@@ -14,19 +21,32 @@ package io.github.sidneyroberto9.spring_session_lite.web.sse;
  */
 public interface SessionEventBroadcaster {
 
-    /** Pushes {@code event: logout} to every emitter registered for {@code userId}. */
-    void logout(String userId, SpringSessionLiteSseLogoutEvent event);
+    /**
+     * Pushes {@code event: logout} to every emitter registered for {@code sessionId}.
+     *
+     * @since 2.2.0 replaces {@code logout(String userId, ...)}, which routed by user.
+     */
+    void sendLogout(String sessionId, SpringSessionLiteSseLogoutEvent event);
 
-    /** Pushes {@code event: renew} to every emitter registered for {@code userId}. */
-    void renew(String userId, SpringSessionLiteSseRenewEvent event);
+    /**
+     * Pushes {@code event: renew} to every emitter registered for {@code sessionId}.
+     *
+     * @since 2.2.0 replaces {@code renew(String userId, ...)}, which routed by user.
+     */
+    void sendRenew(String sessionId, SpringSessionLiteSseRenewEvent event);
 
-    /** Pushes {@code event: warning} to every emitter registered for {@code userId}. */
-    void warning(String userId, SpringSessionLiteSseWarningEvent event);
+    /**
+     * Pushes {@code event: warning} to every emitter registered for {@code sessionId}.
+     *
+     * @since 2.2.0 replaces {@code warning(String userId, ...)}, which routed by user.
+     */
+    void sendWarning(String sessionId, SpringSessionLiteSseWarningEvent event);
 
     /**
      * Sends a keep-alive SSE comment (invisible to {@code EventSource}'s event API, exists only to
      * keep intermediary proxies/load balancers from closing an idle connection) to every
-     * currently-connected emitter, across all users.
+     * currently-connected emitter, across every connected session. Deliberately session-agnostic:
+     * keep-alive is a transport concern, so no routing key belongs in it.
      */
     void pingAll();
 }

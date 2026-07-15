@@ -18,6 +18,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 
 /**
  * Exercises {@link InMemorySessionEventBroadcaster} against a real
@@ -56,9 +57,9 @@ class InMemorySessionEventBroadcasterTest {
     @Test
     void logoutPushesEventNamedLogoutWithSessionIdPayload() throws IOException {
         SseEmitter emitter = mock(SseEmitter.class);
-        registry.add("user-1", emitter);
+        registry.add("sid-1", emitter);
 
-        broadcaster.logout("user-1", new SpringSessionLiteSseLogoutEvent("sid-1"));
+        broadcaster.sendLogout("sid-1", new SpringSessionLiteSseLogoutEvent("sid-1"));
 
         ArgumentCaptor<SseEmitter.SseEventBuilder> captor = ArgumentCaptor.forClass(SseEmitter.SseEventBuilder.class);
         verify(emitter).send(captor.capture());
@@ -71,9 +72,9 @@ class InMemorySessionEventBroadcasterTest {
     @Test
     void renewPushesEventNamedRenewWithRemainingMsPayload() throws IOException {
         SseEmitter emitter = mock(SseEmitter.class);
-        registry.add("user-2", emitter);
+        registry.add("sid-2", emitter);
 
-        broadcaster.renew("user-2", new SpringSessionLiteSseRenewEvent("sid-2", 30_000L, 5_000L));
+        broadcaster.sendRenew("sid-2", new SpringSessionLiteSseRenewEvent("sid-2", 30_000L, 5_000L));
 
         ArgumentCaptor<SseEmitter.SseEventBuilder> captor = ArgumentCaptor.forClass(SseEmitter.SseEventBuilder.class);
         verify(emitter).send(captor.capture());
@@ -86,9 +87,9 @@ class InMemorySessionEventBroadcasterTest {
     @Test
     void warningPushesEventNamedWarningWithCausePayload() throws IOException {
         SseEmitter emitter = mock(SseEmitter.class);
-        registry.add("user-3", emitter);
+        registry.add("sid-3", emitter);
 
-        broadcaster.warning("user-3", new SpringSessionLiteSseWarningEvent("sid-3", 4_000L, 4_000L, null, "absolute"));
+        broadcaster.sendWarning("sid-3", new SpringSessionLiteSseWarningEvent("sid-3", 4_000L, 4_000L, null, "absolute"));
 
         ArgumentCaptor<SseEmitter.SseEventBuilder> captor = ArgumentCaptor.forClass(SseEmitter.SseEventBuilder.class);
         verify(emitter).send(captor.capture());
@@ -99,42 +100,73 @@ class InMemorySessionEventBroadcasterTest {
     }
 
     @Test
-    void broadcastFansOutToEveryEmitterRegisteredForTheUser() throws IOException {
+    void broadcastFansOutToEveryEmitterRegisteredForTheSession() throws IOException {
         SseEmitter first = mock(SseEmitter.class);
         SseEmitter second = mock(SseEmitter.class);
-        registry.add("user-4", first);
-        registry.add("user-4", second);
+        registry.add("sid-4", first);
+        registry.add("sid-4", second);
 
-        broadcaster.logout("user-4", new SpringSessionLiteSseLogoutEvent("sid-4"));
+        broadcaster.sendLogout("sid-4", new SpringSessionLiteSseLogoutEvent("sid-4"));
 
         verify(first).send(any(SseEmitter.SseEventBuilder.class));
         verify(second).send(any(SseEmitter.SseEventBuilder.class));
     }
 
+    /**
+     * Isolation at the broadcaster: a send addressed to one session must not touch a peer session's
+     * emitter, even though both may belong to the same user. Keying by userId is what made this
+     * impossible and turned one session's expiry into everyone's logout.
+     */
     @Test
-    void broadcastToUnknownUserDoesNotThrow() {
-        // No registry.add(...) for this userId — must be a silent no-op, not an error, since most
-        // users won't have a live SSE connection at all.
-        broadcaster.logout("ghost-user", new SpringSessionLiteSseLogoutEvent("sid-5"));
+    void sendLogoutReachesOnlyTheTargetSession() throws IOException {
+        SseEmitter targetTab = mock(SseEmitter.class);
+        SseEmitter peerTab = mock(SseEmitter.class);
+        registry.add("sid-target", targetTab);
+        registry.add("sid-peer", peerTab);
+
+        broadcaster.sendLogout("sid-target", new SpringSessionLiteSseLogoutEvent("sid-target"));
+
+        verify(targetTab).send(any(SseEmitter.SseEventBuilder.class));
+        verifyNoInteractions(peerTab);
+    }
+
+    @Test
+    void sendWarningReachesOnlyTheTargetSession() throws IOException {
+        SseEmitter targetTab = mock(SseEmitter.class);
+        SseEmitter peerTab = mock(SseEmitter.class);
+        registry.add("sid-target", targetTab);
+        registry.add("sid-peer", peerTab);
+
+        broadcaster.sendWarning("sid-target", new SpringSessionLiteSseWarningEvent("sid-target", 4_000L, 4_000L, null, "idle"));
+
+        verify(targetTab).send(any(SseEmitter.SseEventBuilder.class));
+        verifyNoInteractions(peerTab);
+    }
+
+    @Test
+    void broadcastToUnknownSessionDoesNotThrow() {
+        // No registry.add(...) for this sessionId — must be a silent no-op, not an error, since most
+        // sessions won't have a live SSE connection at all.
+        broadcaster.sendLogout("ghost-session", new SpringSessionLiteSseLogoutEvent("sid-5"));
     }
 
     @Test
     void deadEmitterIsRemovedFromRegistryOnIOException() throws IOException {
         SseEmitter emitter = mock(SseEmitter.class);
         doThrow(new IOException("broken pipe")).when(emitter).send(any(SseEmitter.SseEventBuilder.class));
-        registry.add("user-6", emitter);
+        registry.add("sid-6", emitter);
 
-        broadcaster.logout("user-6", new SpringSessionLiteSseLogoutEvent("sid-6"));
+        broadcaster.sendLogout("sid-6", new SpringSessionLiteSseLogoutEvent("sid-6"));
 
-        assertThat(registry.emittersFor("user-6")).isEmpty();
+        assertThat(registry.emittersForSession("sid-6")).isEmpty();
     }
 
     @Test
-    void pingAllSendsCommentToEveryConnectedEmitterAcrossAllUsers() throws IOException {
+    void pingAllSendsCommentToEveryConnectedEmitterAcrossAllSessions() throws IOException {
         SseEmitter first = mock(SseEmitter.class);
         SseEmitter second = mock(SseEmitter.class);
-        registry.add("user-7", first);
-        registry.add("user-8", second);
+        registry.add("sid-7", first);
+        registry.add("sid-8", second);
 
         broadcaster.pingAll();
 
