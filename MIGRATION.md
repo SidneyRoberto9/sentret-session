@@ -9,6 +9,35 @@ Maven Central). Este guia cobre o que muda e como migrar com segurança.
 
 ---
 
+## 2.1.x → 2.2.0
+
+**Nada a fazer** se você só consome a lib (inclusive com `sse-enabled=true`): o roteamento dos
+eventos SSE foi corrigido, sem mudança de configuração nem de banco. Você ganha de graça o fim do
+modal de inatividade fantasma e do logout de usuário ativo quando o mesmo usuário tem mais de uma
+sessão (dois dispositivos, dois browsers, ou uma sessão órfã).
+
+**Só precisa agir quem implementa `SessionEventBroadcaster`** (o seam para um hub pub/sub
+horizontal). O código não vai compilar, de propósito:
+
+| Antes | Agora |
+|---|---|
+| `void logout(String userId, SpringSessionLiteSseLogoutEvent event)` | `void sendLogout(String sessionId, SpringSessionLiteSseLogoutEvent event)` |
+| `void renew(String userId, SpringSessionLiteSseRenewEvent event)` | `void sendRenew(String sessionId, SpringSessionLiteSseRenewEvent event)` |
+| `void warning(String userId, SpringSessionLiteSseWarningEvent event)` | `void sendWarning(String sessionId, SpringSessionLiteSseWarningEvent event)` |
+| `registry.emittersFor(userId)` | `registry.emittersForSession(sessionId)` |
+| `registry.connectedUserIds()` | `registry.connectedSessionIds()` |
+
+> **Não renomeie seu override de volta.** A quebra de compilação é o aviso: o `String` mudou de
+> **significado**, não só de nome. Ele agora é um `sessionId`, e sua implementação precisa entregar
+> **apenas** às conexões autenticadas por aquela sessão exata. Publicar para todas as conexões do
+> usuário é exatamente o bug que a 2.2.0 corrige — desloga quem está trabalhando. Se o seu
+> broadcaster publica num tópico pub/sub, o tópico passa a ser por sessão.
+
+`pingAll()` não mudou (assinatura nem semântica): cada emitter tem exatamente uma chave, então
+re-chavear só reparticiona o mesmo conjunto — todo emitter vivo continua recebendo um ping por tick.
+
+---
+
 ## 2.0.0 → 2.1.0 (opcional, sem quebras)
 
 A versão **2.1.0** é um bump **MINOR**: tudo é aditivo e desligado por padrão

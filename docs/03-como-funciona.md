@@ -114,7 +114,7 @@ lê cookie SLSID
  └─ presente ─► SpringSessionLiteService.validate(sessionId, request)
        ├─ inválida/expirada/IP divergente ─► limpa contexto, APAGA o cookie morto, SEGUE anônimo
        │                                       (a autorização decide o 401; NÃO bloqueia permit-all)
-       └─ válida ─► popula SecurityContext (roles → authorities) + touch() + segue
+       └─ válida ─► popula SecurityContext (roles → authorities) + segue (SEM touch)
 ```
 
 > **Decisão de design (correção):** o filtro **não** emite 401 diretamente. Um cookie expirado
@@ -128,11 +128,27 @@ contexto. Autenticar num filtro servlet **antes** da cadeia seria sobrescrito. P
 
 ### 6.2. `touch()` — escrita controlada
 
-Por padrão `last_accessed_at` é atualizado, mas com **throttle** (`last-accessed-throttle`,
-default 5 min) para não gerar um UPDATE por requisição. Com `sliding-expiration=true`, o
-`expires_at` também é estendido (mesmo throttle). `update-last-accessed=false` torna a validação
-uma leitura pura — **exceto** quando `max-idle` está habilitado (§10), caso em que
-`last_accessed_at` continua sendo escrito porque o idle-check depende dele.
+`validate()` **não** chama `touch()`: validar uma sessão não é atividade do usuário. O filtro roda
+em toda requisição autenticada e não distingue um clique do usuário do `GET /session/status` que o
+próprio client dispara a cada `status-poll-interval` (30s) — se validar contasse como atividade, o
+poll renovaria `last_accessed_at` para sempre e `max-idle` (§10) nunca fecharia. Foi exatamente o
+bug corrigido em 2.1.1.
+
+A atividade é sinalizada de forma **explícita e exclusiva** por `POST /session/heartbeat`, que o
+client dispara a partir de eventos reais de DOM. Só esse endpoint chama
+`SpringSessionLiteService.touch(sessionId)`.
+
+`touch()` **sempre** escreve `last_accessed_at` — sem throttle. O throttle
+(`last-accessed-throttle`) existia quando toda requisição caía aqui e ele era o que evitava um
+UPDATE por requisição; agora só o heartbeat chega, e o client já o limita a `heartbeat-interval`.
+Throttlar de novo no servidor só descartava atividade real e deslogava usuário ativo (corrigido em
+2.1.2; a propriedade virou no-op). Com `sliding-expiration=true`, o `expires_at` também é estendido.
+`update-last-accessed=false` desliga a escrita — **exceto** quando `max-idle` está habilitado (§10),
+caso em que `last_accessed_at` continua sendo escrito porque o idle-check depende dele.
+
+> **Consequência:** habilitar `max-idle` sem um client enviando heartbeat faz a sessão expirar por
+> inatividade mesmo com o usuário usando a aplicação. Use `@media4all/spring-session-lite-client`
+> ou envie o heartbeat por conta própria.
 
 ---
 
@@ -160,13 +176,19 @@ controllers, `SpringSessionLiteUserService.currentUser()` lê da mesma fonte e d
 - `logout(request, response)` — apaga a sessão pelo cookie e limpa o cookie; publica
   `SpringSessionLiteSessionDestroyedEvent`.
 - `logout(sessionId)` — revogação programática de uma sessão.
-- `logoutAll(userId)` — revoga todas as sessões do usuário (ex.: troca de senha).
+- `logoutAll(userId)` — revoga todas as sessões do usuário (ex.: troca de senha). **Não publica
+  eventos**, portanto não empurra SSE: abas conectadas só descobrem no próximo poll de status.
 
 ---
 
 ## 10. Inatividade e renovação (`max-idle` / `renew()`)
 
 ### 10.1. Idle-check em `validate()`
+
+`validate()` **avalia** a inatividade mas não a reinicia — quem reinicia é `touch()`, chamado só
+pelo `POST /session/heartbeat` (§6.2). Essa separação é o que torna a janela alcançável: o client
+observa a sessão em background (poll de `/status` + `/stream` aberto) e essas requisições não podem
+contar como atividade.
 
 Além da expiração absoluta (`expires_at`), `validate()` aplica um segundo corte quando
 `max-idle` está habilitado (`Duration` diferente de `null`/zero/negativo):
@@ -179,12 +201,18 @@ reference + max-idle < agora  ─►  sessão tratada como inválida (Optional.e
 `0`/ausente (default) desativa o idle-check inteiramente, preservando o comportamento anterior à
 2.1 — nenhum consumidor existente é afetado até configurar `max-idle` explicitamente.
 
-**Throttle efetivo:** com o idle-check ligado, o intervalo mínimo entre escritas de
-`last_accessed_at` deixa de ser só `last-accessed-throttle` — passa a ser
-`min(last-accessed-throttle, max-idle / 2)`. Sem esse limite, um `last-accessed-throttle` maior
-que a janela de `max-idle` atrasaria a própria detecção de inatividade. `touch()` também passa a
-escrever `last_accessed_at` mesmo com `update-last-accessed=false`, porque o idle-check depende
-desse timestamp para funcionar.
+`touch()` escreve `last_accessed_at` mesmo com `update-last-accessed=false`, porque o idle-check
+depende desse timestamp para funcionar.
+
+**Relação com `heartbeat-interval`:** o heartbeat é a única coisa que reinicia a janela, e o client
+o limita a `heartbeat-interval`. Logo, um usuário ativo só consegue provar atividade uma vez por
+intervalo — se `heartbeat-interval` chegar perto de `max-idle`, ele é deslogado mesmo trabalhando.
+Mantenha `heartbeat-interval` bem abaixo de `max-idle` (um quarto ou menos); a lib avisa no startup
+quando estão perto demais.
+
+**Relação com `warning-before`:** precisa ser menor que `max-idle`. Igual ou maior faz a condição
+do warning (`idleRemaining <= warning-before`) ser verdadeira desde o início da sessão, e o modal
+aparece já no login. A lib também avisa nesse caso.
 
 ### 10.2. `renew()` — "voltar para o hub"
 
@@ -223,7 +251,7 @@ Base path configurável via `endpoints-base-path` (default `/session`):
 | Rota | Autenticação | O que faz |
 |------|--------------|-----------|
 | `GET /status` | permit-all | Devolve `{ authenticated, userId?, email?, roles?, absoluteRemainingMs?, idleRemainingMs?, config }`. `config` ecoa `ttl`, `max-idle`, `heartbeat-interval`, `status-poll-interval`, `warning-before`, `login-url`, `logout-url`, `redirect-after-expiry-url` — nenhuma UI precisa hardcodar esses tempos/URLs. |
-| `POST /heartbeat` | requer sessão | Não chama `touch()` de novo — o filtro de autenticação já validou/tocou a sessão nesta mesma requisição; só reporta o status resultante. |
+| `POST /heartbeat` | requer sessão | **O único sinal de atividade da lib.** Chama `sessionService.touch(sessionId)` — reiniciando a janela de inatividade — e reporta o status resultante. O client dispara a partir de eventos reais de DOM, throttled em `heartbeat-interval`. |
 | `POST /renew` | requer sessão | Delega a `sessionService.renew(request, response)`; `401` (`{"error":"unauthorized",...}`) na rara corrida de a sessão ter sido apagada entre o filtro e o controller. |
 | `POST /logout` | requer sessão | Delega a `sessionService.logout(request, response)`; `204 No Content`. |
 
@@ -241,16 +269,25 @@ Base path configurável via `endpoints-base-path` (default `/session`):
 
 - **`SpringSessionLiteSseController`** — `GET <endpoints-base-path>/stream` (mesma propriedade de
   base path dos endpoints REST), exige sessão válida (não está em `permit-all-paths`), cria um
-  `SseEmitter` sem timeout fixo (conexão de vida longa) e o registra por `userId` em
+  `SseEmitter` sem timeout fixo (conexão de vida longa) e o registra por **`sessionId`** em
   `SpringSessionLiteSseRegistry`. Envia `X-Accel-Buffering: no` para reverse proxies não
   "bufferizarem" o stream.
-- **`SessionEventBroadcaster`** — abstração por trás de **todo** envio SSE (`logout`, `renew`,
-  `warning`, `pingAll`); nem o controller nem a idle-watch chamam `SseEmitter#send` diretamente.
-  `InMemorySessionEventBroadcaster` (backed por `SpringSessionLiteSseRegistry`) é a implementação
-  padrão, single-instance. **É o ponto de extensão** para um hub horizontal (múltiplas instâncias,
-  backed por pub/sub — ex. Redis) — troque o bean (`@ConditionalOnMissingBean`) para que um push
-  originado numa instância alcance emitters conectados a outra; essa implementação está fora do
-  escopo desta fase, só o *seam* existe.
+- **`SessionEventBroadcaster`** — abstração por trás de **todo** envio SSE (`sendLogout`,
+  `sendRenew`, `sendWarning`, `pingAll`); nem o controller nem a idle-watch chamam
+  `SseEmitter#send` diretamente. `InMemorySessionEventBroadcaster` (backed por
+  `SpringSessionLiteSseRegistry`) é a implementação padrão, single-instance. **É o ponto de
+  extensão** para um hub horizontal (múltiplas instâncias, backed por pub/sub — ex. Redis) — troque
+  o bean (`@ConditionalOnMissingBean`) para que um push originado numa instância alcance emitters
+  conectados a outra; essa implementação está fora do escopo desta fase, só o *seam* existe.
+
+> **A chave de roteamento é o `sessionId`, nunca o `userId`** (corrigido na 2.2.0). Cada evento SSE
+> descreve **uma** sessão. Entregá-lo a outra sessão do mesmo usuário mostra um aviso de inatividade
+> que a aba não consegue dispensar (o "Continuar conectado" renova a sessão do cookie, não a do
+> aviso) e, na expiração, desloga quem está trabalhando. A aba não tem como recusar: o payload
+> nomeia um `sessionId`, mas o browser não sabe o seu — `GET /session/status` não o devolve, e
+> devolver seria um downgrade contra o cookie `httpOnly`. Um usuário com N sessões ocupa N chaves
+> independentes; abas do mesmo browser compartilham cookie, logo compartilham chave — e aí o logout
+> vale para todas mesmo, corretamente.
 - **`SpringSessionLiteIdleWatchTask`** — `@Scheduled(fixedDelay = 10_000)` (fixo, sem property
   própria), varre `store.findActive(agora)` e, por sessão: destrói via
   `sessionService.logout(sessionId)` quando idle **ou** absoluto expirou (reaproveitando o método
@@ -308,7 +345,9 @@ também ativa o `@EnableScheduling` interno — sem forçar scheduling global qu
 | `ResponseCookie` | Única API com suporte a `SameSite`. |
 | HMAC-SHA256 do IP com salt | Não guardar IP em texto puro; resistir a rainbow tables. |
 | `SessionStore` como interface | Backend de sessão substituível. |
-| Throttle de `last_accessed_at` | Evita escrita no banco a cada requisição. |
+| Registry SSE chaveado por `sessionId` (não `userId`) | Um evento SSE descreve UMA sessão. Entregá-lo a outra sessão do mesmo usuário mostra aviso que a aba não consegue dispensar e desloga quem está ativo — e a aba não tem como recusar, pois não sabe o próprio `sessionId`. |
+| `validate()` não registra atividade | O client observa a sessão sozinho (poll de `/status` + `/stream`); se observar contasse como atividade, `max-idle` nunca fecharia. Só o heartbeat conta. |
+| `touch()` sem throttle | O client já limita o heartbeat a `heartbeat-interval`; throttlar de novo descartava o único sinal de atividade e deslogava usuário ativo. |
 | `max-idle` default `0` (desativado) | Recurso aditivo/opt-in — nenhum comportamento existente muda. |
 | Throttle efetivo `min(last-accessed-throttle, max-idle / 2)` | Sem isso, um throttle alto atrasaria a própria detecção de inatividade. |
 | Endpoints/SSE em `@AutoConfiguration` separadas | Consumidor liga por property, sem escrever controller. |
