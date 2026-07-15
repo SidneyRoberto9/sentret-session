@@ -5,6 +5,7 @@ import io.github.sidneyroberto9.spring_session_lite.service.SpringSessionLiteIpH
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class SpringSessionLiteIpHasherTest {
 
@@ -28,5 +29,25 @@ class SpringSessionLiteIpHasherTest {
     void differentSaltProducesDifferentHash() {
         assertThat(hasher("salt-a").hash("192.168.0.1"))
                 .isNotEqualTo(hasher("salt-b").hash("192.168.0.1"));
+    }
+
+    @Test
+    void emptyIpIsDeterministicAndHex64() {
+        SpringSessionLiteIpHasher hasher = hasher("secret");
+        String first = hasher.hash("");
+        String second = hasher.hash("");
+
+        assertThat(first).isEqualTo(second);
+        assertThat(first).hasSize(64).matches("^[0-9a-f]{64}$");
+    }
+
+    @Test
+    void nullIpWrapsFailureInIllegalStateException() {
+        SpringSessionLiteIpHasher hasher = hasher("secret");
+
+        assertThatThrownBy(() -> hasher.hash(null))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("IP hashing failed")
+                .hasCauseInstanceOf(NullPointerException.class);
     }
 }

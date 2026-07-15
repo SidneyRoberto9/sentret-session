@@ -69,6 +69,181 @@ class SpringSessionLiteServiceTest {
         return request;
     }
 
+    // --- login(): 4-arg overload delegates to the 5-arg one with no roles ---
+
+    @Test
+    void loginWithoutRolesDelegatesToRolesOverloadWithEmptyRoles() {
+        MockHttpServletRequest request = request("203.0.113.30");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        SpringSessionLiteUser user = service.login("user-1", "user@test.com", request, response);
+
+        assertThat(user.roles()).isEmpty();
+        verify(store).save(any());
+    }
+
+    // --- logoutAll() ---
+
+    @Test
+    void logoutAllDeletesEverySessionForUser() {
+        service.logoutAll("user-1");
+
+        verify(store).deleteByUserId("user-1");
+    }
+
+    // --- deleteExpired() ---
+
+    @Test
+    void deleteExpiredDelegatesToStoreWithCurrentInstant() {
+        service.deleteExpired();
+
+        verify(store).deleteExpired(any());
+    }
+
+    // --- touch(): early-return guard when nothing would change ---
+
+    @Test
+    void touchIsNoOpWhenNoTrackingIsEnabled() {
+        properties.setUpdateLastAccessed(false);
+        properties.setSlidingExpiration(false);
+        // maxIdle defaults to Duration.ZERO -> isIdleEnabled() is false too
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.31", now);
+        Instant lastAccessed = now.minus(Duration.ofHours(1));
+        session.setLastAccessedAt(lastAccessed);
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        service.touch("sid");
+
+        assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
+        verify(store, never()).save(any());
+    }
+
+    // --- touch(): sliding expiration pushes expiresAt out too ---
+
+    @Test
+    void touchSlidesExpiresAtWhenSlidingExpirationEnabled() {
+        properties.setTtl(Duration.ofHours(1));
+        properties.setSlidingExpiration(true);
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.32", now);
+        session.setExpiresAt(now.plus(Duration.ofMinutes(1)));
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        service.touch("sid");
+
+        assertThat(session.getExpiresAt()).isAfter(now.plus(Duration.ofMinutes(55)));
+        verify(store).save(session);
+    }
+
+    // --- touch(): sliding expiration alone (no updateLastAccessed, no idle) still writes ---
+
+    @Test
+    void touchSlidesExpiresAtWithoutTouchingLastAccessedWhenOnlySlidingExpirationEnabled() {
+        properties.setUpdateLastAccessed(false);
+        properties.setSlidingExpiration(true);
+        properties.setTtl(Duration.ofHours(1));
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.33", now);
+        Instant lastAccessed = now.minus(Duration.ofMinutes(10));
+        session.setLastAccessedAt(lastAccessed);
+        session.setExpiresAt(now.plus(Duration.ofMinutes(1)));
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        service.touch("sid");
+
+        assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
+        assertThat(session.getExpiresAt()).isAfter(now.plus(Duration.ofMinutes(55)));
+        verify(store).save(session);
+    }
+
+    // --- touch(): idle-enabled alone (no updateLastAccessed, no sliding) still resets the clock ---
+
+    @Test
+    void touchResetsLastAccessedWhenOnlyIdleEnabledEvenWithUpdateLastAccessedDisabled() {
+        properties.setUpdateLastAccessed(false);
+        properties.setSlidingExpiration(false);
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.34", now);
+        Instant lastAccessed = now.minus(Duration.ofMinutes(5));
+        session.setLastAccessedAt(lastAccessed);
+        Instant expiresAt = session.getExpiresAt();
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        service.touch("sid");
+
+        assertThat(session.getLastAccessedAt()).isAfter(now.minus(Duration.ofSeconds(5)));
+        assertThat(session.getExpiresAt()).isEqualTo(expiresAt);
+        verify(store).save(session);
+    }
+
+    // --- isIdleEnabled(): null maxIdle is treated as disabled, same as zero/negative ---
+
+    @Test
+    void remainingTreatsNullMaxIdleAsDisabled() {
+        properties.setMaxIdle(null);
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.35", now);
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        Optional<SpringSessionLiteSessionRemaining> result = service.remaining("sid");
+
+        assertThat(result).isPresent();
+        assertThat(result.get().idleRemainingMs()).isNull();
+    }
+
+    // --- logout(request, response): no cookie present ---
+
+    @Test
+    void logoutWithRequestAndResponseSkipsSessionLookupWhenNoCookiePresent() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        service.logout(request, response);
+
+        verify(store, never()).findBySessionId(any());
+        assertThat(response.getHeader("Set-Cookie")).isNotNull();
+    }
+
+    // --- joinRoles()/splitRoles(): null vs blank vs populated, and blank-entry filtering ---
+
+    @Test
+    void loginWithNullRolesStoresNullRoles() {
+        MockHttpServletRequest request = request("203.0.113.36");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        SpringSessionLiteUser user = service.login("user-1", "user@test.com", null, request, response);
+
+        assertThat(user.roles()).isEmpty();
+    }
+
+    @Test
+    void validateSplitsBlankStoredRolesAsEmptyList() {
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.37", now);
+        session.setRoles("   ");
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        Optional<SpringSessionLiteUser> result = service.validate("sid", request("203.0.113.37"));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().roles()).isEmpty();
+    }
+
+    @Test
+    void validateFiltersOutBlankEntriesFromStoredRoles() {
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = sessionFor("203.0.113.38", now);
+        session.setRoles("ADMIN,,USER");
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+
+        Optional<SpringSessionLiteUser> result = service.validate("sid", request("203.0.113.38"));
+
+        assertThat(result).isPresent();
+        assertThat(result.get().roles()).containsExactly("ADMIN", "USER");
+    }
+
     // --- validate(): inactivity expiration ---
 
     @Test

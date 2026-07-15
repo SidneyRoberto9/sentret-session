@@ -184,4 +184,18 @@ class SpringSessionLiteAuthenticationFilterTest {
 
         assertThat(SecurityContextHolder.getContext().getAuthentication()).isNull();
     }
+
+    // --- authorities: bare role names get a ROLE_ prefix, already-prefixed ones are left alone ---
+
+    @Test
+    void authenticatesWithBothBareAndPrefixedRoleNames() throws Exception {
+        SpringSessionLiteSession session = sessionIdleFor(Duration.ofSeconds(1), Instant.now());
+        session.setRoles("ADMIN,ROLE_SUPPORT");
+
+        doFilter(request("GET", "/api/documents"));
+
+        assertThat(SecurityContextHolder.getContext().getAuthentication().getAuthorities())
+                .extracting(Object::toString)
+                .containsExactlyInAnyOrder("ROLE_ADMIN", "ROLE_SUPPORT");
+    }
 }

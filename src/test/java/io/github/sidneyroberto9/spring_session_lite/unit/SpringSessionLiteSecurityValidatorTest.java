@@ -49,6 +49,18 @@ class SpringSessionLiteSecurityValidatorTest {
                 .toList();
     }
 
+    private List<ILoggingEvent> sameSiteWarnings() {
+        return appender.list.stream()
+                .filter(event -> event.getFormattedMessage().contains("'cookie-same-site=None'"))
+                .toList();
+    }
+
+    private List<ILoggingEvent> saltWarnings() {
+        return appender.list.stream()
+                .filter(event -> event.getFormattedMessage().contains("'ip-hash-salt'"))
+                .toList();
+    }
+
     /**
      * The heartbeat is the only thing that resets the idle window, and the client throttles it to
      * `heartbeat-interval`. Too close to `max-idle` and an active user gets logged out anyway.
@@ -119,6 +131,75 @@ class SpringSessionLiteSecurityValidatorTest {
 
         validate(properties);
 
+        assertThat(warningBeforeWarnings()).isEmpty();
+    }
+
+    /**
+     * `SameSite=None` requires the browser to send the cookie cross-site; without CSRF protection
+     * that is an open door for cross-site request forgery.
+     */
+    @Test
+    void warnsWhenSameSiteNoneWithCsrfDisabled() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setCookieSameSite("None");
+        properties.setCsrfEnabled(false);
+
+        validate(properties);
+
+        assertThat(sameSiteWarnings()).hasSize(1);
+    }
+
+    @Test
+    void doesNotWarnWhenSameSiteNoneWithCsrfEnabled() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setCookieSameSite("None");
+        properties.setCsrfEnabled(true);
+
+        validate(properties);
+
+        assertThat(sameSiteWarnings()).isEmpty();
+    }
+
+    @Test
+    void doesNotWarnAboutSaltWhenCookieIsNotSecure() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setCookieSecure(false);
+
+        validate(properties);
+
+        assertThat(saltWarnings()).isEmpty();
+    }
+
+    @Test
+    void doesNotWarnAboutSaltWhenCookieSecureWithCustomSalt() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setCookieSecure(true);
+        properties.setIpHashSalt("a-strong-custom-salt");
+
+        validate(properties);
+
+        assertThat(saltWarnings()).isEmpty();
+    }
+
+    @Test
+    void doesNotWarnAboutHeartbeatOrWarningBeforeWhenMaxIdleIsNull() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setMaxIdle(null);
+
+        validate(properties);
+
+        assertThat(heartbeatWarnings()).isEmpty();
+        assertThat(warningBeforeWarnings()).isEmpty();
+    }
+
+    @Test
+    void doesNotWarnAboutHeartbeatOrWarningBeforeWhenMaxIdleIsNegative() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setMaxIdle(Duration.ofMinutes(-1));
+
+        validate(properties);
+
+        assertThat(heartbeatWarnings()).isEmpty();
         assertThat(warningBeforeWarnings()).isEmpty();
     }
 }

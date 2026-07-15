@@ -250,6 +250,61 @@ class SpringSessionLiteIdleWatchTaskTest {
         assertThat(capturedEventNamed("warning")).isNull();
     }
 
+    // --- warning: both idle and absolute deadlines are within the warning window ---
+
+    @Test
+    void evaluatePushesIdleCauseWhenIdleDeadlineIsNearerThanAbsolute() throws IOException {
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        properties.setWarningBefore(Duration.ofMinutes(5));
+        Instant now = Instant.now();
+        // idle deadline = lastAccessedAt(now-8m) + maxIdle(10m) = now+2m
+        // absolute deadline = now+4m
+        SpringSessionLiteSession session = session("user-7", "sid-7", now.plus(Duration.ofMinutes(4)), now.minus(Duration.ofMinutes(8)));
+        stubActiveSession(session);
+        registry.add("sid-7", emitter);
+
+        task.evaluate();
+
+        Set<ResponseBodyEmitter.DataWithMediaType> warningEvent = capturedEventNamed("warning");
+        assertThat(warningEvent).as("a warning event must have been pushed").isNotNull();
+        assertThat(nonStringPayloadOf(warningEvent, SpringSessionLiteSseWarningEvent.class).cause()).isEqualTo("idle");
+    }
+
+    @Test
+    void evaluatePushesAbsoluteCauseWhenAbsoluteDeadlineIsNearerThanIdle() throws IOException {
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        properties.setWarningBefore(Duration.ofMinutes(5));
+        Instant now = Instant.now();
+        // idle deadline = lastAccessedAt(now-6m) + maxIdle(10m) = now+4m (within the 5m window)
+        // absolute deadline = now+2m (nearer than idle's +4m, also within the 5m window)
+        SpringSessionLiteSession session = session("user-8", "sid-8", now.plus(Duration.ofMinutes(2)), now.minus(Duration.ofMinutes(6)));
+        stubActiveSession(session);
+        registry.add("sid-8", emitter);
+
+        task.evaluate();
+
+        Set<ResponseBodyEmitter.DataWithMediaType> warningEvent = capturedEventNamed("warning");
+        assertThat(warningEvent).as("a warning event must have been pushed").isNotNull();
+        assertThat(nonStringPayloadOf(warningEvent, SpringSessionLiteSseWarningEvent.class).cause()).isEqualTo("absolute");
+    }
+
+    // --- race: session vanishes between findActive() and the per-session evaluation ---
+
+    @Test
+    void evaluateSkipsSessionGoneBeforeItCanBeEvaluated() throws IOException {
+        Instant now = Instant.now();
+        SpringSessionLiteSession session = session("user-6", "sid-6", now.plus(Duration.ofHours(1)), now);
+        when(store.findActive(any())).thenReturn(List.of(session));
+        when(store.findBySessionId("sid-6")).thenReturn(Optional.empty());
+        registry.add("sid-6", emitter);
+
+        task.evaluate();
+
+        verify(store, never()).deleteBySessionId(any());
+        assertThat(capturedEventNamed("logout")).isNull();
+        assertThat(capturedEventNamed("warning")).isNull();
+    }
+
     // --- one user, two sessions: the reported incident, through the real production path ---
 
     /**
