@@ -7,7 +7,6 @@ import io.github.sidneyroberto9.spring_session_lite.service.SpringSessionLiteSes
 import io.github.sidneyroberto9.spring_session_lite.store.SpringSessionLiteSessionStore;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 
 import java.time.Instant;
 import java.util.Optional;
@@ -38,26 +37,28 @@ import java.util.Optional;
  * a known, accepted limitation of keeping this sweep simple (see the plan's single-instance-hub
  * assumption for this phase).
  *
- * <p>Fixed 10-second cadence, not configurable — the plan does not call for a new property for
- * this interval, and the existing {@code warningBefore}/{@code maxIdle} windows are typically
- * measured in minutes, so a 10s granularity is more than adequate.
+ * <p>Cadence defaults to 10 seconds and is configurable via
+ * {@code spring-session-lite.idle-watch-interval} (since 2.3.0). The sweep shares the host
+ * application's {@code TaskScheduler}, whose default pool is one thread — on a hub with many live
+ * sessions, a slow sweep is a slow sweep for every other {@code @Scheduled} bean in that
+ * application, so raise {@code spring.task.scheduling.pool.size} accordingly.
  *
  * <p>Every tick also sends a keep-alive ping to all connected emitters (see
  * {@link SessionEventBroadcaster#pingAll()}), piggy-backing on this task's own timer instead of
- * introducing a second scheduled component just for that.
+ * introducing a second scheduled component just for that. No send this task triggers — ping,
+ * warning, or the logout the destroy path publishes — runs on this thread: the broadcaster
+ * dispatches all of them to its own queues, because a blocking write to a wedged socket must never
+ * stall the sweep (see {@link InMemorySessionEventBroadcaster}).
  */
 @Slf4j
 @RequiredArgsConstructor
 public class SpringSessionLiteIdleWatchTask {
-
-    private static final long FIXED_DELAY_MS = 10_000L;
 
     private final SessionEventBroadcaster broadcaster;
     private final SpringSessionLiteSessionStore store;
     private final SpringSessionLiteProperties properties;
     private final SpringSessionLiteService sessionService;
 
-    @Scheduled(fixedDelay = FIXED_DELAY_MS)
     public void evaluate() {
         long warningBeforeMs = properties.getWarningBefore().toMillis();
 
@@ -68,17 +69,52 @@ public class SpringSessionLiteIdleWatchTask {
         broadcaster.pingAll();
     }
 
+    /**
+     * Two-step on purpose: <em>triage</em> from the row {@code findActive()} already loaded, then
+     * <em>re-read</em> before acting on it.
+     *
+     * <p>Until 2.3.0 the triage step was itself a {@code sessionService.remaining(sessionId)} call —
+     * one extra read-only transaction per session per tick, N+1 against the connection pool for
+     * data already in hand ({@code expiresAt} and {@code lastAccessedAt} are on the loaded row).
+     * The vast majority of live sessions are nowhere near either deadline, so they are now decided
+     * entirely in memory and cost nothing beyond the single {@code findActive()} query.
+     *
+     * <p>The re-read is not the N+1 coming back: it runs only for the few sessions the triage says
+     * need a warning or a destroy. It is required for correctness — {@code findActive()} snapshots
+     * every row at the top of the sweep, and a sweep over many sessions takes long enough for a
+     * {@code POST /session/heartbeat} (or an explicit logout) to land while it is still running.
+     * Acting on the stale snapshot would log out a user who moved their mouse mid-sweep, or push an
+     * inactivity warning for a session that no longer exists.
+     */
     private void evaluateSession(SpringSessionLiteSession session, long warningBeforeMs) {
         String sessionId = session.getSessionId();
 
-        Optional<SpringSessionLiteSessionRemaining> remainingOpt = sessionService.remaining(sessionId);
-
-        if (remainingOpt.isEmpty()) {
-            // Gone already (race with a concurrent logout/expiry) — nothing left to evaluate.
+        if (!needsAction(sessionService.remainingOf(session), warningBeforeMs)) {
             return;
         }
 
-        SpringSessionLiteSessionRemaining remaining = remainingOpt.get();
+        Optional<SpringSessionLiteSessionRemaining> current = sessionService.remaining(sessionId);
+
+        if (current.isEmpty()) {
+            // Gone already (race with a concurrent logout/expiry) — nothing to warn about.
+            return;
+        }
+
+        act(sessionId, current.get(), warningBeforeMs);
+    }
+
+    /**
+     * Whether the session is close enough to either deadline to be worth a fresh read. Expiry needs
+     * no separate check: remaining time is clamped at zero, and {@code warningBefore} is never
+     * negative, so an expired session is always inside the window.
+     */
+    private boolean needsAction(SpringSessionLiteSessionRemaining remaining, long warningBeforeMs) {
+        Long idleRemainingMs = remaining.idleRemainingMs();
+
+        return remaining.absoluteRemainingMs() <= warningBeforeMs || (idleRemainingMs != null && idleRemainingMs <= warningBeforeMs);
+    }
+
+    private void act(String sessionId, SpringSessionLiteSessionRemaining remaining, long warningBeforeMs) {
         Long idleRemainingMs = remaining.idleRemainingMs();
         long absoluteRemainingMs = remaining.absoluteRemainingMs();
 
@@ -95,6 +131,8 @@ public class SpringSessionLiteIdleWatchTask {
         boolean absoluteWarning = absoluteRemainingMs <= warningBeforeMs;
 
         if (!idleWarning && !absoluteWarning) {
+            // The re-read moved the session back out of the warning window: a heartbeat landed
+            // between findActive() and here. The user is active; say nothing.
             return;
         }
 

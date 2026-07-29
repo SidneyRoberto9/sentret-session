@@ -28,8 +28,20 @@ public class SpringSessionLiteSseSessionEventListener {
         broadcaster.sendLogout(event.sessionId(), new SpringSessionLiteSseLogoutEvent(event.sessionId()));
     }
 
+    /**
+     * Uses the remaining-time snapshot the event carries (since 2.3.0). The publisher had just
+     * loaded and saved the row, so re-reading it here — which is what this did until 2.3.0 — was one
+     * extra transaction per renewal for values the publisher already had. The read survives only as
+     * the fallback for events built with the legacy three-arg constructor, which carries no
+     * snapshot.
+     */
     @EventListener
     public void onSessionRenewed(SpringSessionLiteSessionRenewedEvent event) {
+        if (event.absoluteRemainingMs() != null) {
+            broadcaster.sendRenew(event.sessionId(), new SpringSessionLiteSseRenewEvent(event.sessionId(), event.absoluteRemainingMs(), event.idleRemainingMs()));
+            return;
+        }
+
         Optional<SpringSessionLiteSessionRemaining> remaining = sessionService.remaining(event.sessionId());
 
         long absoluteRemainingMs = remaining.map(SpringSessionLiteSessionRemaining::absoluteRemainingMs).orElse(0L);

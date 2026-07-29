@@ -19,7 +19,7 @@ package io.github.sidneyroberto9.spring_session_lite.web.sse;
  * out of scope for this task (see the plan's "Riscos" section on horizontal scaling) — only this
  * seam needs to exist.
  */
-public interface SessionEventBroadcaster {
+public interface SessionEventBroadcaster extends AutoCloseable {
 
     /**
      * Pushes {@code event: logout} to every emitter registered for {@code sessionId}.
@@ -49,4 +49,20 @@ public interface SessionEventBroadcaster {
      * keep-alive is a transport concern, so no routing key belongs in it.
      */
     void pingAll();
+
+    /**
+     * Releases whatever an implementation holds for pushing (threads, connections, subscriptions).
+     * Declared here, and not only on {@link InMemorySessionEventBroadcaster}, because Spring infers
+     * the destroy method from the <em>registered bean's</em> class: a consumer who wraps or replaces
+     * the default broadcaster (the documented extension seam — see this interface's javadoc) would
+     * otherwise leak the wrapped instance's threads on every context shutdown.
+     *
+     * <p>Default no-op, so a stateless implementation ignores it. <strong>A decorator must override
+     * it and delegate</strong> to whatever it wraps.
+     *
+     * @since 2.3.0
+     */
+    @Override
+    default void close() {
+    }
 }

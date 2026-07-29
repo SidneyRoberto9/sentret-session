@@ -49,6 +49,12 @@ class SpringSessionLiteSecurityValidatorTest {
                 .toList();
     }
 
+    private List<ILoggingEvent> idleWatchIntervalWarnings() {
+        return appender.list.stream()
+                .filter(event -> event.getFormattedMessage().contains("'idle-watch-interval'"))
+                .toList();
+    }
+
     private List<ILoggingEvent> sameSiteWarnings() {
         return appender.list.stream()
                 .filter(event -> event.getFormattedMessage().contains("'cookie-same-site=None'"))
@@ -132,6 +138,61 @@ class SpringSessionLiteSecurityValidatorTest {
         validate(properties);
 
         assertThat(warningBeforeWarnings()).isEmpty();
+    }
+
+    /**
+     * The sweep is the only thing that pushes the inactivity warning. At a cadence no shorter than
+     * `warning-before`, a session can go from outside the warning window to expired between two
+     * ticks, so the client is logged out without ever having been warned.
+     */
+    @Test
+    void warnsWhenIdleWatchIntervalIsNotBelowWarningBefore() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setSseEnabled(true);
+        properties.setWarningBefore(Duration.ofSeconds(60));
+        properties.setIdleWatchInterval(Duration.ofSeconds(60));
+
+        validate(properties);
+
+        assertThat(idleWatchIntervalWarnings()).hasSize(1);
+    }
+
+    @Test
+    void doesNotWarnWhenIdleWatchIntervalIsWellBelowWarningBefore() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setSseEnabled(true);
+        properties.setWarningBefore(Duration.ofSeconds(60));
+        properties.setIdleWatchInterval(Duration.ofSeconds(10));
+
+        validate(properties);
+
+        assertThat(idleWatchIntervalWarnings()).isEmpty();
+    }
+
+    @Test
+    void doesNotWarnAboutIdleWatchIntervalWhenSseIsDisabled() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setWarningBefore(Duration.ofSeconds(10));
+        properties.setIdleWatchInterval(Duration.ofSeconds(60));
+
+        validate(properties);
+
+        assertThat(idleWatchIntervalWarnings()).isEmpty();
+    }
+
+    /**
+     * An empty {@code idle-watch-interval=} binds to {@code null}; that is rejected outright by the
+     * SSE autoconfiguration, so this validator must not NPE on the way there.
+     */
+    @Test
+    void doesNotWarnAboutIdleWatchIntervalWhenItIsNull() {
+        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
+        properties.setSseEnabled(true);
+        properties.setIdleWatchInterval(null);
+
+        validate(properties);
+
+        assertThat(idleWatchIntervalWarnings()).isEmpty();
     }
 
     /**

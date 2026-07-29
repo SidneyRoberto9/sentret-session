@@ -178,4 +178,19 @@ public class SpringSessionLiteProperties {
      * {@link #endpointsEnabled}/{@link #cleanupEnabled}.
      */
     private boolean sseEnabled = false;
+
+    /**
+     * How often the idle-watch sweep runs when {@link #sseEnabled} is on. Must be positive; the SSE
+     * autoconfiguration reads this bound value and hands it to the scheduling registrar (which is
+     * why it is a {@code Duration} here and not a {@code @Scheduled(fixedDelayString)} placeholder —
+     * that attribute rejects the relaxed {@code "10s"} spelling every other duration in this
+     * namespace uses).
+     *
+     * <p>The sweep shares the host application's {@code TaskScheduler} (default pool size: 1), so a
+     * shorter interval on a hub with many live sessions competes with every other {@code @Scheduled}
+     * bean in that application.
+     *
+     * @since 2.3.0
+     */
+    private Duration idleWatchInterval = Duration.ofSeconds(10);
 }

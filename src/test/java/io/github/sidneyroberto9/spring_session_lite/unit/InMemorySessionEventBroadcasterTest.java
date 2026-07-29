@@ -1,22 +1,37 @@
 package io.github.sidneyroberto9.spring_session_lite.unit;
 
 import io.github.sidneyroberto9.spring_session_lite.web.sse.InMemorySessionEventBroadcaster;
+import io.github.sidneyroberto9.spring_session_lite.web.sse.SessionEventBroadcaster;
 import io.github.sidneyroberto9.spring_session_lite.web.sse.SpringSessionLiteSseLogoutEvent;
 import io.github.sidneyroberto9.spring_session_lite.web.sse.SpringSessionLiteSseRegistry;
 import io.github.sidneyroberto9.spring_session_lite.web.sse.SpringSessionLiteSseRenewEvent;
 import io.github.sidneyroberto9.spring_session_lite.web.sse.SpringSessionLiteSseWarningEvent;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyEmitter;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 
@@ -32,8 +47,24 @@ import static org.mockito.Mockito.verifyNoInteractions;
  */
 class InMemorySessionEventBroadcasterTest {
 
+    private static final long AWAIT_SECONDS = 5;
+
     private final SpringSessionLiteSseRegistry registry = new SpringSessionLiteSseRegistry();
-    private final InMemorySessionEventBroadcaster broadcaster = new InMemorySessionEventBroadcaster(registry);
+
+    /**
+     * Fed {@code Runnable::run} so the routing/payload assertions below stay synchronous and
+     * deterministic. The real dispatch behavior — its own threads, ordering, the drop-on-rejection
+     * path, {@link InMemorySessionEventBroadcaster#close()} — is covered separately against
+     * {@link #asyncBroadcaster}, which uses the production executors.
+     */
+    private final InMemorySessionEventBroadcaster broadcaster = new InMemorySessionEventBroadcaster(registry, Runnable::run);
+
+    private final InMemorySessionEventBroadcaster asyncBroadcaster = new InMemorySessionEventBroadcaster(registry);
+
+    @AfterEach
+    void closeAsyncBroadcaster() {
+        asyncBroadcaster.close();
+    }
 
     private static String eventNameOf(Set<ResponseBodyEmitter.DataWithMediaType> built) {
         return built.stream()
@@ -177,5 +208,165 @@ class InMemorySessionEventBroadcasterTest {
         assertThat(built.iterator().next().getData()).asString().contains(":ping");
 
         verify(second).send(any(SseEmitter.SseEventBuilder.class));
+    }
+
+    // --- dispatch: nothing is sent on the caller's thread ---
+
+    /**
+     * The whole point of 2.3.0's dispatch change. The callers are the idle-watch sweep (on the host
+     * application's shared {@code TaskScheduler}) and the domain-event listener (inside
+     * {@code SpringSessionLiteService}'s open transaction) — neither may execute a blocking socket
+     * write itself.
+     */
+    @Test
+    void sendRunsOnTheBroadcastersOwnThreadNotTheCallers() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        CountDownLatch sent = new CountDownLatch(1);
+        AtomicReference<String> sendingThread = new AtomicReference<>();
+
+        doAnswer(invocation -> {
+            sendingThread.set(Thread.currentThread().getName());
+            sent.countDown();
+            return null;
+        }).when(emitter).send(any(SseEmitter.SseEventBuilder.class));
+
+        registry.add("sid-async", emitter);
+
+        asyncBroadcaster.sendLogout("sid-async", new SpringSessionLiteSseLogoutEvent("sid-async"));
+
+        assertThat(sent.await(AWAIT_SECONDS, TimeUnit.SECONDS)).as("the event must actually go out").isTrue();
+        assertThat(sendingThread.get()).startsWith("spring-session-lite-sse-send-");
+        assertThat(sendingThread.get()).isNotEqualTo(Thread.currentThread().getName());
+    }
+
+    /**
+     * A client whose socket never drains blocks {@code SseEmitter#send} indefinitely (emitters are
+     * created with no timeout). The caller must be long gone by then — before 2.3.0 it was the
+     * scheduler thread, and it stayed there.
+     */
+    @Test
+    void aWedgedClientDoesNotBlockTheCaller() throws Exception {
+        SseEmitter wedged = mock(SseEmitter.class);
+        CountDownLatch sendStarted = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+
+        doAnswer(invocation -> {
+            sendStarted.countDown();
+            release.await();
+            return null;
+        }).when(wedged).send(any(SseEmitter.SseEventBuilder.class));
+
+        registry.add("sid-wedged", wedged);
+
+        try {
+            asyncBroadcaster.sendLogout("sid-wedged", new SpringSessionLiteSseLogoutEvent("sid-wedged"));
+
+            assertThat(sendStarted.await(AWAIT_SECONDS, TimeUnit.SECONDS)).as("the send must have begun").isTrue();
+            // Reaching this line with the send still parked inside the emitter is the assertion:
+            // the caller returned while the write is stuck.
+            assertThat(release.getCount()).isEqualTo(1);
+        } finally {
+            release.countDown();
+        }
+    }
+
+    /**
+     * Ordering is why sends are striped by sessionId onto single-thread queues instead of being
+     * thrown at a pool: a tab that receives {@code warning} <em>after</em> the {@code logout} that
+     * ended the session shows a countdown modal for a session that no longer exists.
+     */
+    @Test
+    void eventsForOneSessionArriveInTheOrderTheyWereProduced() throws Exception {
+        SseEmitter emitter = mock(SseEmitter.class);
+        List<String> received = Collections.synchronizedList(new ArrayList<>());
+        CountDownLatch both = new CountDownLatch(2);
+
+        doAnswer(invocation -> {
+            received.add(eventNameOf(invocation.getArgument(0, SseEmitter.SseEventBuilder.class).build()));
+            both.countDown();
+            return null;
+        }).when(emitter).send(any(SseEmitter.SseEventBuilder.class));
+
+        registry.add("sid-ordered", emitter);
+
+        asyncBroadcaster.sendWarning("sid-ordered", new SpringSessionLiteSseWarningEvent("sid-ordered", 1_000L, 1_000L, null, "absolute"));
+        asyncBroadcaster.sendLogout("sid-ordered", new SpringSessionLiteSseLogoutEvent("sid-ordered"));
+
+        assertThat(both.await(AWAIT_SECONDS, TimeUnit.SECONDS)).isTrue();
+        assertThat(received).containsExactly("warning", "logout");
+    }
+
+    // --- lifecycle ---
+
+    @Test
+    void closeShutsDownTheExecutorsItCreated() throws IOException {
+        InMemorySessionEventBroadcaster owning = new InMemorySessionEventBroadcaster(registry);
+        SseEmitter emitter = mock(SseEmitter.class);
+        registry.add("sid-closed", emitter);
+
+        owning.close();
+        owning.sendLogout("sid-closed", new SpringSessionLiteSseLogoutEvent("sid-closed"));
+
+        // A shut-down executor rejects, and a rejected event is dropped rather than thrown at the
+        // caller: nothing can reach the emitter afterwards.
+        verify(emitter, never()).send(any(SseEmitter.SseEventBuilder.class));
+    }
+
+    /**
+     * The two-arg constructor is documented as "you own the thread". Spring's inferred destroy
+     * method fires {@code close()} on context shutdown, and killing a pool the consumer also uses
+     * for unrelated work would cancel that work.
+     */
+    @Test
+    void closeDoesNotShutDownACallerSuppliedExecutor() {
+        ExecutorService callersPool = Executors.newSingleThreadExecutor();
+
+        try {
+            new InMemorySessionEventBroadcaster(registry, callersPool).close();
+
+            assertThat(callersPool.isShutdown()).isFalse();
+        } finally {
+            callersPool.shutdownNow();
+        }
+    }
+
+    @Test
+    void aRejectedSendIsDroppedNotThrownAtTheCaller() {
+        Executor alwaysRejects = task -> {
+            throw new RejectedExecutionException("queue full");
+        };
+        InMemorySessionEventBroadcaster saturated = new InMemorySessionEventBroadcaster(registry, alwaysRejects);
+        registry.add("sid-saturated", mock(SseEmitter.class));
+
+        assertThatCode(() -> saturated.sendLogout("sid-saturated", new SpringSessionLiteSseLogoutEvent("sid-saturated")))
+                .doesNotThrowAnyException();
+    }
+
+    /**
+     * {@code close()} is on the interface (not just the default implementation) so that a consumer
+     * who wraps or replaces the broadcaster still gets a shutdown hook. A stateless implementation
+     * inherits the no-op.
+     */
+    @Test
+    void interfaceCloseDefaultsToNoOp() {
+        SessionEventBroadcaster stateless = new SessionEventBroadcaster() {
+            @Override
+            public void sendLogout(String sessionId, SpringSessionLiteSseLogoutEvent event) {
+            }
+
+            @Override
+            public void sendRenew(String sessionId, SpringSessionLiteSseRenewEvent event) {
+            }
+
+            @Override
+            public void sendWarning(String sessionId, SpringSessionLiteSseWarningEvent event) {
+            }
+
+            @Override
+            public void pingAll() {
+            }
+        };
+
+        assertThatCode(stateless::close).doesNotThrowAnyException();
     }
 }

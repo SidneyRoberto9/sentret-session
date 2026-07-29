@@ -42,6 +42,7 @@ apenas o que quiser sobrescrever.
 | `endpoints-enabled` | `boolean` | `false` | Registra o controller opt-in `GET /status`, `POST /heartbeat`, `POST /renew`, `POST /logout` (base path em `endpoints-base-path`), via `SpringSessionLiteEndpointsAutoConfiguration`. Desligado por padrão — consumidores existentes não são afetados até habilitar explicitamente. |
 | `endpoints-base-path` | `String` | `/session` | Base path dos endpoints opt-in — tanto o controller REST (`endpoints-enabled`) quanto o stream SSE (`sse-enabled`) usam esta mesma propriedade. |
 | `sse-enabled` | `boolean` | `false` | Registra a pilha SSE opt-in via `SpringSessionLiteSseAutoConfiguration`: `GET <endpoints-base-path>/stream`, o registry/broadcaster em memória, a varredura idle-watch (`warning`/`logout`) e o listener que empurra `logout`/`renew` imediatamente. Independente de `endpoints-enabled`/`cleanup-enabled`. |
+| `idle-watch-interval` | `Duration` | `10s` | *(2.3.0)* Cadência da varredura idle-watch, antes fixa em código. Só tem efeito com `sse-enabled=true`. **Precisa ser positiva** — zero, negativa ou vazia falha no startup com mensagem nomeando a propriedade — e **menor que `warning-before`**, senão uma sessão pode ir de "fora da janela" a expirada entre dois ticks, sem o cliente nunca receber o aviso (a lib avisa no startup). A varredura usa o `TaskScheduler` da aplicação hospedeira, cujo pool padrão é **1 thread** — num hub com muitas sessões vivas ela compete com todo outro `@Scheduled` da aplicação, então ajuste `spring.task.scheduling.pool.size` junto. |
 
 ---
 

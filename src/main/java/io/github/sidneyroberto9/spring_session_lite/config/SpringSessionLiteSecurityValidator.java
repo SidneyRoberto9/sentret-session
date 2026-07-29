@@ -29,6 +29,12 @@ public class SpringSessionLiteSecurityValidator implements InitializingBean {
             log.warn("[spring-session-lite] 'heartbeat-interval' ({}) is >= half of 'max-idle' ({}). " + "The heartbeat is the only thing that resets the idle window, and the client throttles it to " + "this interval — so an active user can be logged out anyway, and the warning can show while " + "they are still working. Set 'spring-session-lite.heartbeat-interval' well below 'max-idle' " + "(a quarter of it or less).", properties.getHeartbeatInterval(), maxIdle);
         }
 
+        Duration idleWatchInterval = properties.getIdleWatchInterval();
+
+        if (properties.isSseEnabled() && idleWatchInterval != null && idleWatchInterval.compareTo(properties.getWarningBefore()) >= 0) {
+            log.warn("[spring-session-lite] 'idle-watch-interval' ({}) is >= 'warning-before' ({}). The sweep is the " + "only thing that pushes the inactivity warning, so at this cadence a session can go from " + "outside the warning window straight to expired without the client ever being warned. Set " + "'spring-session-lite.idle-watch-interval' well below 'warning-before'.", idleWatchInterval, properties.getWarningBefore());
+        }
+
         if (idleEnabled && properties.getWarningBefore().compareTo(maxIdle) >= 0) {
             log.warn("[spring-session-lite] 'warning-before' ({}) is >= 'max-idle' ({}), so the inactivity " + "warning is inside its window from the moment the session starts and the client shows it " + "immediately. Set 'spring-session-lite.warning-before' below 'max-idle'.", properties.getWarningBefore(), maxIdle);
         }

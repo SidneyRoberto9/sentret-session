@@ -153,7 +153,11 @@ public class SpringSessionLiteService {
             session.setLastAccessedAt(now);
             store.save(session);
 
-            eventPublisher.publishEvent(new SpringSessionLiteSessionRenewedEvent(session.getUserId(), sessionId, now));
+            // Remaining time is computed here, from the row already in hand, and carried on the
+            // event — otherwise every listener that reports the new deadlines re-reads this exact
+            // row (the SSE bridge did until 2.3.0).
+            SpringSessionLiteSessionRemaining remaining = remainingOf(session);
+            eventPublisher.publishEvent(new SpringSessionLiteSessionRenewedEvent(session.getUserId(), sessionId, now, remaining.absoluteRemainingMs(), remaining.idleRemainingMs()));
 
             return toUser(session);
         });
@@ -182,20 +186,33 @@ public class SpringSessionLiteService {
      */
     @Transactional(readOnly = true)
     public Optional<SpringSessionLiteSessionRemaining> remaining(String sessionId) {
-        return store.findBySessionId(sessionId).map(session -> {
-            Instant now = Instant.now();
+        return store.findBySessionId(sessionId).map(this::remainingOf);
+    }
 
-            long absoluteRemainingMs = Math.max(0, Duration.between(now, session.getExpiresAt()).toMillis());
+    /**
+     * Same computation as {@link #remaining(String)}, but against a session the caller already holds
+     * — no lookup, no transaction, no connection.
+     *
+     * <p>Exists for callers that iterate a set of sessions they just loaded. {@code remaining(String)}
+     * re-reads the row it was handed, which is one extra transaction per session; the idle-watch
+     * sweep did that on every row on every tick, so a hub with N live sessions issued N+1
+     * transactions every few seconds purely to recompute two subtractions over data it already had.
+     *
+     * @since 2.3.0
+     */
+    public SpringSessionLiteSessionRemaining remainingOf(SpringSessionLiteSession session) {
+        Instant now = Instant.now();
 
-            Long idleRemainingMs = null;
+        long absoluteRemainingMs = Math.max(0, Duration.between(now, session.getExpiresAt()).toMillis());
 
-            if (isIdleEnabled()) {
-                Instant reference = session.getLastAccessedAt() != null ? session.getLastAccessedAt() : session.getCreatedAt();
-                idleRemainingMs = Math.max(0, Duration.between(now, reference.plus(properties.getMaxIdle())).toMillis());
-            }
+        Long idleRemainingMs = null;
 
-            return new SpringSessionLiteSessionRemaining(absoluteRemainingMs, idleRemainingMs);
-        });
+        if (isIdleEnabled()) {
+            Instant reference = session.getLastAccessedAt() != null ? session.getLastAccessedAt() : session.getCreatedAt();
+            idleRemainingMs = Math.max(0, Duration.between(now, reference.plus(properties.getMaxIdle())).toMillis());
+        }
+
+        return new SpringSessionLiteSessionRemaining(absoluteRemainingMs, idleRemainingMs);
     }
 
     /**

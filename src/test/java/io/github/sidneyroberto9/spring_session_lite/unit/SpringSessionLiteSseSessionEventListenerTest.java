@@ -63,7 +63,7 @@ class SpringSessionLiteSseSessionEventListenerTest {
         SpringSessionLiteService sessionService = new SpringSessionLiteService(ipHasher, store, properties, ipResolver, unusedPublisher, cookieManager);
 
         registry = new SpringSessionLiteSseRegistry();
-        InMemorySessionEventBroadcaster broadcaster = new InMemorySessionEventBroadcaster(registry);
+        InMemorySessionEventBroadcaster broadcaster = new InMemorySessionEventBroadcaster(registry, Runnable::run);
         listener = new SpringSessionLiteSseSessionEventListener(broadcaster, sessionService);
 
         emitter = mock(SseEmitter.class);
@@ -187,6 +187,22 @@ class SpringSessionLiteSseSessionEventListenerTest {
         assertThat(payload.sessionId()).isEqualTo("sid-2");
         assertThat(payload.absoluteRemainingMs()).isCloseTo(Duration.ofMinutes(30).toMillis(), offset(5_000L));
         assertThat(payload.idleRemainingMs()).isCloseTo(Duration.ofMinutes(10).toMillis(), offset(5_000L));
+    }
+
+    /**
+     * Since 2.3.0 the publisher puts the remaining-time snapshot on the event — it had just loaded
+     * and saved the row — so the listener must use it instead of re-reading the row one frame later.
+     */
+    @Test
+    void onSessionRenewedUsesTheSnapshotOnTheEventWithoutReReadingTheSession() throws IOException {
+        registry.add("sid-carried", emitter);
+
+        listener.onSessionRenewed(new SpringSessionLiteSessionRenewedEvent("user-5", "sid-carried", Instant.now(), 30_000L, 5_000L));
+
+        SpringSessionLiteSseRenewEvent payload = eventNamed("renew", SpringSessionLiteSseRenewEvent.class);
+        assertThat(payload.absoluteRemainingMs()).isEqualTo(30_000L);
+        assertThat(payload.idleRemainingMs()).isEqualTo(5_000L);
+        org.mockito.Mockito.verify(store, org.mockito.Mockito.never()).findBySessionId(any());
     }
 
     @Test

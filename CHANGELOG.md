@@ -6,6 +6,84 @@ livremente, o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/); o ver
 
 ---
 
+## [2.3.0] - 2026-07-29
+
+Bump **MINOR**. Sob carga, a varredura de inatividade era o maior consumidor de banco do hub, e um
+único cliente travado podia congelar todos os `@Scheduled` da aplicação hospedeira — e prender uma
+conexão do pool. Nenhuma mudança de comportamento visível ao usuário final; nenhuma migração
+necessária, exceto para quem constrói `InMemorySessionEventBroadcaster` na mão ou implementa
+`SessionEventBroadcaster` (ver abaixo).
+
+### Corrigido
+
+- **A varredura de inatividade fazia N+1 consultas por tick.** `SpringSessionLiteIdleWatchTask`
+  carregava todas as sessões vivas com `store.findActive()` e então chamava
+  `sessionService.remaining(sessionId)` **por linha** — cada chamada uma transação read-only própria
+  que relia a linha que a task já tinha em mãos. Com N sessões vivas eram N+1 transações a cada 10s,
+  numa única thread, contra o pool de conexões da aplicação. Como o `ttl` padrão é de 8h, N é "logins
+  nas últimas 8 horas", não "usuários online agora" — então o custo crescia ao longo do dia mesmo com
+  a concorrência estável. A conta de tempo restante usa apenas `expiresAt` e `lastAccessedAt`, ambos
+  já presentes na linha carregada, e agora é feita em memória (via o novo
+  `SpringSessionLiteService.remainingOf(session)`) para **triar** cada sessão. **Sessão longe de
+  qualquer prazo — a esmagadora maioria, na maior parte do tempo — não custa consulta nenhuma: 1 por
+  tick, independente de N.** Só as poucas que a triagem marca para ação (aviso ou destruição) são
+  relidas, e isso é de propósito — ver o item seguinte.
+- **A varredura podia deslogar quem estava trabalhando.** `findActive()` fotografa todas as linhas no
+  início do tick; numa varredura longa, um `POST /session/heartbeat` (ou um logout explícito) chega
+  enquanto ela ainda está rodando. Decidir pela foto envelhecida destruiria a sessão de quem acabou de
+  mexer o mouse, e mandaria `warning` para uma sessão que já não existe. Antes da 2.3.0 a releitura
+  por linha fechava essa janela por acidente; agora ela é explícita e só para as sessões que a triagem
+  marcou — a janela volta a ser de microssegundos, sem voltar a ser N+1.
+- **Um cliente travado parava a varredura, todo o resto do agendador e uma transação aberta.**
+  `SseEmitter#send` é uma escrita bloqueante no output stream do container. Um cliente com a janela
+  TCP cheia — ou uma conexão meio-aberta — bloqueia o escritor até o socket expirar, e o emitter é
+  criado sem timeout. Isso rodava na thread do `TaskScheduler` compartilhado da aplicação hospedeira
+  (pool padrão: 1 thread) no caso da varredura, e **dentro da transação aberta** de
+  `SpringSessionLiteService.logout/renew` no caso do listener de eventos (dispatch síncrono do
+  Spring), segurando também a conexão JDBC. Nenhum envio roda mais na thread de quem chamou: o
+  broadcaster despacha `logout`/`renew`/`warning`/`ping` para filas próprias, de threads daemon,
+  particionadas por `sessionId` — os eventos de uma sessão continuam em ordem (um `warning` depois do
+  `logout` mostraria contagem regressiva numa sessão morta) e um cliente travado só atrasa a fatia de
+  sessões que caiu na mesma fila. Fila cheia descarta com log, em vez de crescer sem limite.
+- **`idle-watch-interval` inválido quebrava o startup sem dizer por quê.** `0s` estourava um
+  `IllegalArgumentException` de dentro do `ThreadPoolTaskScheduler` e um valor vazio virava `null` e
+  um NPE no registrar. Agora falha com mensagem nomeando a propriedade, e o validador de configuração
+  avisa quando a cadência é frouxa demais para o `warning-before` configurado (a varredura é a única
+  coisa que empurra o aviso de inatividade).
+
+### Adicionado
+
+- `spring-session-lite.idle-watch-interval` (default `10s`) — a cadência da varredura, antes fixa em
+  código.
+- `SpringSessionLiteService.remainingOf(SpringSessionLiteSession)` — mesma conta de
+  `remaining(String)`, sobre uma sessão que o chamador já tem. Sem consulta, sem transação.
+- `SessionEventBroadcaster.close()` — gancho de shutdown, com implementação default vazia. Declarado
+  na interface, e não só na implementação padrão, porque o Spring infere o destroy method da classe do
+  **bean registrado**: quem decora ou substitui o broadcaster (o ponto de extensão documentado) vazava
+  as threads do objeto embrulhado a cada shutdown de contexto. **Um decorator precisa sobrescrever e
+  delegar.**
+- `InMemorySessionEventBroadcaster(registry, Executor)` — sobrecarga para quem quer controlar a
+  thread de envio. O executor passado aqui **não** é encerrado por `close()`: ele é de quem o passou,
+  que pode estar compartilhando-o com outro trabalho. Testes passam `Runnable::run` para manter os
+  envios síncronos.
+- `SpringSessionLiteSessionRenewedEvent` passa a carregar `absoluteRemainingMs`/`idleRemainingMs`. O
+  publicador acabou de carregar e salvar a linha, então calcular ali não custa nada; sem isso todo
+  listener que queira reportar os novos prazos relê a linha que o publicador tinha em mãos um quadro
+  antes (era exatamente o que a ponte SSE fazia).
+
+### Migração
+
+- Quem instancia `InMemorySessionEventBroadcaster` diretamente: o construtor de um argumento continua
+  existindo e agora cria as filas daemon internas, encerradas em `close()`.
+- Quem **implementa** `SessionEventBroadcaster`: nada a fazer — `close()` tem default vazio. Quem
+  **decora** o broadcaster padrão deve sobrescrever `close()` e delegar, ou as threads do objeto
+  interno sobrevivem ao contexto.
+- Quem constrói `SpringSessionLiteSessionRenewedEvent`: o construtor de três argumentos continua
+  existindo e deixa o snapshot nulo (listeners caem na releitura). O construtor canônico agora tem
+  cinco componentes — relevante só para deconstruction patterns.
+
+---
+
 ## [2.2.0] - 2026-07-15
 
 Bump **MINOR**. Todo o SSE mis-roteava eventos: `warning` e `logout` de uma sessão chegavam nas

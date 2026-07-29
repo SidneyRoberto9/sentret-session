@@ -16,6 +16,9 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplicat
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.scheduling.annotation.SchedulingConfigurer;
+
+import java.time.Duration;
 
 /**
  * Registers the opt-in SSE push stack: {@code GET <endpoints-base-path>/stream}, the in-memory
@@ -74,6 +77,36 @@ public class SpringSessionLiteSseAutoConfiguration {
             SessionEventBroadcaster broadcaster
     ) {
         return new SpringSessionLiteIdleWatchTask(broadcaster, store, properties, sessionService);
+    }
+
+    /**
+     * Schedules the sweep programmatically rather than with {@code @Scheduled(fixedDelayString)}.
+     * That attribute resolves its placeholder to a raw String and accepts only a plain millisecond
+     * count or an ISO-8601 duration — {@code "10s"} throws at context startup. Every other duration
+     * in this namespace ({@code ttl=8h}, {@code max-idle=15m}) uses Boot's relaxed style, so the
+     * interval is bound as a {@link java.time.Duration} on {@link SpringSessionLiteProperties} and
+     * handed to the registrar here, where all three spellings work.
+     *
+     * <p>The interval is validated before it reaches the registrar: an empty value binds to
+     * {@code null} and a zero/negative one is rejected by {@code scheduleWithFixedDelay}, both of
+     * which surface as an opaque failure during context refresh rather than as something a consumer
+     * can act on.
+     *
+     * @since 2.3.0
+     */
+    @Bean
+    @ConditionalOnMissingBean(name = "springSessionLiteIdleWatchScheduler")
+    public SchedulingConfigurer springSessionLiteIdleWatchScheduler(
+            SpringSessionLiteIdleWatchTask task,
+            SpringSessionLiteProperties properties
+    ) {
+        Duration interval = properties.getIdleWatchInterval();
+
+        if (interval == null || interval.isZero() || interval.isNegative()) {
+            throw new IllegalStateException("[spring-session-lite] 'idle-watch-interval' must be a positive duration (e.g. 10s, 500ms, PT10S); got: " + interval);
+        }
+
+        return registrar -> registrar.addFixedDelayTask(task::evaluate, interval);
     }
 
     @Bean

@@ -69,7 +69,7 @@ class SpringSessionLiteIdleWatchTaskTest {
         SpringSessionLiteIpResolver ipResolver = new SpringSessionLiteIpResolver(properties);
 
         registry = new SpringSessionLiteSseRegistry();
-        InMemorySessionEventBroadcaster broadcaster = new InMemorySessionEventBroadcaster(registry);
+        InMemorySessionEventBroadcaster broadcaster = new InMemorySessionEventBroadcaster(registry, Runnable::run);
 
         SpringSessionLiteSseSessionEventListener[] listenerRef = new SpringSessionLiteSseSessionEventListener[1];
         ApplicationEventPublisher eventPublisher = event -> {
@@ -250,6 +250,31 @@ class SpringSessionLiteIdleWatchTaskTest {
         assertThat(capturedEventNamed("warning")).isNull();
     }
 
+    /**
+     * The N+1 guard. Until 2.3.0 the sweep called {@code sessionService.remaining(sessionId)} per
+     * row, which re-read via {@code findBySessionId} — one extra read-only transaction per live
+     * session on every tick. The remaining-time maths only needs {@code expiresAt} and
+     * {@code lastAccessedAt}, both already on the row {@code findActive()} returned, so a session
+     * that is nowhere near either deadline — which is nearly all of them, nearly all the time — must
+     * cost nothing beyond the single {@code findActive()} query. (Sessions the triage flags for
+     * action do get re-read, deliberately; see
+     * {@link #evaluateDoesNotLogOutASessionWhoseHeartbeatLandedDuringTheSweep()}.)
+     */
+    @Test
+    void evaluateQueriesTheStoreOncePerTickWhenNoSessionNeedsAction() {
+        Instant now = Instant.now();
+        stubActiveSessions(
+                session("user-a", "sid-a", now.plus(Duration.ofHours(1)), now),
+                session("user-b", "sid-b", now.plus(Duration.ofHours(2)), now),
+                session("user-c", "sid-c", now.plus(Duration.ofHours(3)), now)
+        );
+
+        task.evaluate();
+
+        verify(store).findActive(any());
+        verify(store, never()).findBySessionId(any());
+    }
+
     // --- warning: both idle and absolute deadlines are within the warning window ---
 
     @Test
@@ -290,10 +315,19 @@ class SpringSessionLiteIdleWatchTaskTest {
 
     // --- race: session vanishes between findActive() and the per-session evaluation ---
 
+    /**
+     * {@code findActive()} snapshots every row at the top of the sweep; by the time a given row is
+     * evaluated the session may have been destroyed (an explicit {@code POST /session/logout}, or
+     * another node's cleanup). Warning a session that no longer exists puts a countdown modal on a
+     * tab that has already been told to log out.
+     */
     @Test
     void evaluateSkipsSessionGoneBeforeItCanBeEvaluated() throws IOException {
+        properties.setWarningBefore(Duration.ofSeconds(60));
         Instant now = Instant.now();
-        SpringSessionLiteSession session = session("user-6", "sid-6", now.plus(Duration.ofHours(1)), now);
+        // Inside the warning window, so the sweep does try to act on it — which is the only case
+        // where the session's continued existence matters.
+        SpringSessionLiteSession session = session("user-6", "sid-6", now.plus(Duration.ofSeconds(30)), now);
         when(store.findActive(any())).thenReturn(List.of(session));
         when(store.findBySessionId("sid-6")).thenReturn(Optional.empty());
         registry.add("sid-6", emitter);
@@ -303,6 +337,33 @@ class SpringSessionLiteIdleWatchTaskTest {
         verify(store, never()).deleteBySessionId(any());
         assertThat(capturedEventNamed("logout")).isNull();
         assertThat(capturedEventNamed("warning")).isNull();
+    }
+
+    // --- race: the user is active while the sweep is running ---
+
+    /**
+     * The snapshot the sweep iterates is as old as the sweep is long. A user who moves their mouse
+     * after {@code findActive()} loaded their row — {@code POST /session/heartbeat} writes
+     * {@code lastAccessedAt} — must not be logged out by a decision taken on the stale copy. Acting
+     * on the re-read is what makes the window microseconds wide again instead of sweep-wide.
+     */
+    @Test
+    void evaluateDoesNotLogOutASessionWhoseHeartbeatLandedDuringTheSweep() throws IOException {
+        properties.setMaxIdle(Duration.ofMinutes(10));
+        Instant now = Instant.now();
+
+        SpringSessionLiteSession stale = session("user-9", "sid-9", now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(11)));
+        SpringSessionLiteSession refreshed = session("user-9", "sid-9", now.plus(Duration.ofHours(1)), now);
+
+        when(store.findActive(any())).thenReturn(List.of(stale));
+        when(store.findBySessionId("sid-9")).thenReturn(Optional.of(refreshed));
+        registry.add("sid-9", emitter);
+
+        task.evaluate();
+
+        verify(store, never()).deleteBySessionId(any());
+        assertThat(capturedEventNamed("logout")).as("an active user must not be logged out").isNull();
+        assertThat(capturedEventNamed("warning")).as("nor warned — they are nowhere near idle").isNull();
     }
 
     // --- one user, two sessions: the reported incident, through the real production path ---
