@@ -6,6 +6,57 @@ livremente, o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/); o ver
 
 ---
 
+## [3.0.0] - 2026-07-29
+
+Bump **MAJOR**. **Toda a pilha SSE foi removida.** O push por servidor era, na prática, a única coisa
+na biblioteca que custava uma conexão por aba e impedia rodar mais de uma réplica — e nunca foi fonte
+de verdade para nada.
+
+### Removido
+
+- **`GET <endpoints-base-path>/stream` e todo o pacote `web.sse`** — `SpringSessionLiteSseController`,
+  `SpringSessionLiteSseRegistry`, `SessionEventBroadcaster` /
+  `InMemorySessionEventBroadcaster`, `SpringSessionLiteIdleWatchTask`,
+  `SpringSessionLiteSseSessionEventListener` e os eventos
+  `SpringSessionLiteSseWarningEvent` / `SseLogoutEvent` / `SseRenewEvent`, mais
+  `SpringSessionLiteSseAutoConfiguration`.
+- **Propriedades `sse-enabled` e `idle-watch-interval`.** Deixe de configurá-las; o Boot ignora
+  propriedades desconhecidas, então nada quebra no startup se elas ficarem para trás.
+- **`SpringSessionLiteSessionStore.findActive(Instant)`** (e o `findByExpiresAtAfter` do
+  repositório). Existia só para a varredura idle-watch. Um store customizado que a implementava
+  pode simplesmente apagar o método.
+- No cliente (`@media4all/session-lite` 1.0.0): `EventSourceLike`, `MessageEventLike`,
+  `SessionLogoutEvent`, o `eventSourceFactory` do ambiente injetável, o listener `onStreamGaveUp` e
+  o campo `sessionId` de `SessionWarningEvent`/`SessionRenewEvent` (sempre vazio fora do SSE).
+
+### Por quê
+
+Um `SseEmitter` é criado sem timeout e vive enquanto a aba viver: **uma conexão TCP permanente por
+aba aberta**. Recarregar uma janela abre a nova antes de a antiga ser detectada como morta — o
+container só percebe o cliente sumido quando uma escrita falha —, então a contagem de sockets
+acompanha o número de abas, não o de requisições. Pior: o registro de emitters é um mapa em memória,
+o que prende o hub a **uma única réplica** e fecha a porta para escalar horizontalmente, que é
+justamente o que uma implantação grande precisa fazer.
+
+Em troca disso, o push entregava apenas latência. O `warning` já era derivável do
+`GET /session/status` — ele carrega `idleRemainingMs`/`absoluteRemainingMs`, e o cliente levanta o
+card sozinho em `applyStatus`. O `logout` já era coberto pelo mesmo poll: `validate()` aplica
+`max-idle` e devolve `authenticated:false`. Nada do que o stream fazia deixou de acontecer; só passa
+a acontecer em até `status-poll-interval` em vez de instantaneamente.
+
+### Migração
+
+1. Remova `spring-session-lite.sse-enabled` e `spring-session-lite.idle-watch-interval` do
+   `application.properties`.
+2. Garanta `status-poll-interval` **confortavelmente abaixo** de `warning-before` — agora o poll é o
+   único caminho do aviso de inatividade. A lib passa a avisar no startup quando não está (o aviso
+   equivalente sobre `idle-watch-interval` saiu junto com a varredura).
+3. Atualize o cliente para `@media4all/session-lite` 1.0.0.
+4. Se você implementava `SpringSessionLiteSessionStore`, apague o `findActive`.
+5. Com o hub agora stateless, `replicas` pode passar de 1.
+
+---
+
 ## [2.3.0] - 2026-07-29
 
 Bump **MINOR**. Sob carga, a varredura de inatividade era o maior consumidor de banco do hub, e um
