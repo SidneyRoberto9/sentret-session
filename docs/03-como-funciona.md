@@ -35,11 +35,7 @@ io.github.sidneyroberto9.spring_session_lite
 │                   SpringSessionLiteSessionRemaining (record — snapshot de tempo restante)
 ├── event/          SpringSessionLiteSessionCreatedEvent, ...DestroyedEvent, ...RenewedEvent
 ├── web/            @SpringSessionLiteCurrentSession, ...ArgumentResolver
-│   ├── controller/ SpringSessionLiteSessionController — /session/status|heartbeat|renew|logout (opt-in)
-│   └── sse/        SpringSessionLiteSseController (GET /session/stream, opt-in), ...SseRegistry,
-│                   SessionEventBroadcaster (interface) + InMemorySessionEventBroadcaster (default),
-│                   SpringSessionLiteIdleWatchTask (varredura @Scheduled), ...SseSessionEventListener,
-│                   payloads: ...SseLogoutEvent, ...SseRenewEvent, ...SseWarningEvent
+│   └── controller/ SpringSessionLiteSessionController — /session/status|heartbeat|renew|logout (opt-in)
 ├── scheduler/      SpringSessionLiteCleanupTask
 └── util/           NanoId
 ```
@@ -177,7 +173,7 @@ controllers, `SpringSessionLiteUserService.currentUser()` lê da mesma fonte e d
   `SpringSessionLiteSessionDestroyedEvent`.
 - `logout(sessionId)` — revogação programática de uma sessão.
 - `logoutAll(userId)` — revoga todas as sessões do usuário (ex.: troca de senha). **Não publica
-  eventos**, portanto não empurra SSE: abas conectadas só descobrem no próximo poll de status.
+  eventos.** Abas abertas descobrem no próximo poll de status, como em qualquer outra revogação.
 
 ---
 
@@ -187,8 +183,8 @@ controllers, `SpringSessionLiteUserService.currentUser()` lê da mesma fonte e d
 
 `validate()` **avalia** a inatividade mas não a reinicia — quem reinicia é `touch()`, chamado só
 pelo `POST /session/heartbeat` (§6.2). Essa separação é o que torna a janela alcançável: o client
-observa a sessão em background (poll de `/status` + `/stream` aberto) e essas requisições não podem
-contar como atividade.
+observa a sessão em background (poll de `/status`) e essas requisições não podem contar como
+atividade.
 
 Além da expiração absoluta (`expires_at`), `validate()` aplica um segundo corte quando
 `max-idle` está habilitado (`Duration` diferente de `null`/zero/negativo):
@@ -228,7 +224,7 @@ de salvar, para que nenhum listener precise reler a mesma linha um quadro depois
 três argumentos continua existindo e deixa o snapshot nulo). A sobrecarga
 `renew(request, response)` lê o `session_id` do cookie — sem cookie, devolve `Optional.empty()`
 sem tocar o banco — e delega a `renew(sessionId)`, que só falha (`Optional.empty()`) se o registro
-já não existir mais no store (ex.: apagado por um logout/idle-watch/limpeza concorrente); ao
+já não existir mais no store (ex.: apagado por um logout/limpeza concorrente); ao
 contrário de `validate()`, não reavalia `expires_at`/idle antes de renovar. Em caso de sucesso,
 reescreve o cookie (`cookieManager.write`, atualizando o `Max-Age`). Na prática, via o endpoint
 `POST /session/renew` (§11), essa distinção raramente importa: o filtro de autenticação já exige
@@ -237,7 +233,7 @@ uma sessão válida (idle/absoluta) para a requisição chegar ao controller.
 `SpringSessionLiteService.remaining(sessionId)` é uma leitura **sem** efeitos colaterais (não
 chama `touch()`/`validate()`) que devolve `SpringSessionLiteSessionRemaining` (`absoluteRemainingMs`,
 `idleRemainingMs` — este último `null` quando `max-idle` está desativado). É a base dos endpoints
-de status/heartbeat/renew (§11) e dos eventos SSE (§12).
+de status/heartbeat/renew (§11).
 
 ---
 
@@ -266,77 +262,7 @@ Base path configurável via `endpoints-base-path` (default `/session`):
 
 ---
 
-## 12. Push SSE opt-in — `GET /stream`
-
-`SpringSessionLiteSseAutoConfiguration` registra a pilha SSE apenas com `sse-enabled=true`
-(default `false`), independente de `endpoints-enabled`/`cleanup-enabled`:
-
-- **`SpringSessionLiteSseController`** — `GET <endpoints-base-path>/stream` (mesma propriedade de
-  base path dos endpoints REST), exige sessão válida (não está em `permit-all-paths`), cria um
-  `SseEmitter` sem timeout fixo (conexão de vida longa) e o registra por **`sessionId`** em
-  `SpringSessionLiteSseRegistry`. Envia `X-Accel-Buffering: no` para reverse proxies não
-  "bufferizarem" o stream.
-- **`SessionEventBroadcaster`** — abstração por trás de **todo** envio SSE (`sendLogout`,
-  `sendRenew`, `sendWarning`, `pingAll`); nem o controller nem a idle-watch chamam
-  `SseEmitter#send` diretamente. `InMemorySessionEventBroadcaster` (backed por
-  `SpringSessionLiteSseRegistry`) é a implementação padrão, single-instance. **É o ponto de
-  extensão** para um hub horizontal (múltiplas instâncias, backed por pub/sub — ex. Redis) — troque
-  o bean (`@ConditionalOnMissingBean`) para que um push originado numa instância alcance emitters
-  conectados a outra; essa implementação está fora do escopo desta fase, só o *seam* existe.
-  > **Nenhum envio roda na thread de quem chamou** (2.3.0). `SseEmitter#send` é escrita bloqueante e
-  > o emitter não tem timeout: um cliente travado congelaria o `TaskScheduler` da aplicação (caso da
-  > varredura) ou a transação aberta de `logout`/`renew` e sua conexão JDBC (caso do listener, que o
-  > Spring despacha síncrono). O broadcaster despacha para filas de uma thread daemon cada,
-  > **particionadas por `sessionId`**: os eventos de uma sessão preservam a ordem (`warning` depois
-  > de `logout` mostraria contagem regressiva em sessão morta) e um cliente travado atrasa só a
-  > fatia de sessões que caiu na fila dele. Fila cheia (1000) descarta com log. `close()` — declarado
-  > na **interface**, para que decorators também tenham gancho de shutdown — encerra as filas que a
-  > instância criou; um `Executor` passado pelo construtor de dois argumentos é de quem passou e não
-  > é encerrado.
-
-> **A chave de roteamento é o `sessionId`, nunca o `userId`** (corrigido na 2.2.0). Cada evento SSE
-> descreve **uma** sessão. Entregá-lo a outra sessão do mesmo usuário mostra um aviso de inatividade
-> que a aba não consegue dispensar (o "Continuar conectado" renova a sessão do cookie, não a do
-> aviso) e, na expiração, desloga quem está trabalhando. A aba não tem como recusar: o payload
-> nomeia um `sessionId`, mas o browser não sabe o seu — `GET /session/status` não o devolve, e
-> devolver seria um downgrade contra o cookie `httpOnly`. Um usuário com N sessões ocupa N chaves
-> independentes; abas do mesmo browser compartilham cookie, logo compartilham chave — e aí o logout
-> vale para todas mesmo, corretamente.
-- **`SpringSessionLiteIdleWatchTask`** — agendada programaticamente (`SchedulingConfigurer` na
-  autoconfiguração SSE) com `fixedDelay` = `idle-watch-interval` (default `10s`, 2.3.0; `@Scheduled`
-  não aceita a grafia relaxada `10s` numa property). Varre `store.findActive(agora)` e, por sessão:
-  destrói via `sessionService.logout(sessionId)` quando idle **ou** absoluto expirou (reaproveitando
-  o método existente, então o mesmo listener que empurra `logout` no `POST /session/logout` cobre
-  também as sessões descobertas aqui); senão empurra `warning` quando dentro de `warning-before` de
-  qualquer um dos dois prazos (não existe evento de domínio para "prestes a expirar", então é o único
-  caso em que a task empurra diretamente). Todo tick também chama `broadcaster.pingAll()` —
-  keep-alive para as conexões não caírem por proxy/load balancer.
-  > **Triagem em memória, releitura só para agir** (2.3.0). O tempo restante de cada linha é
-  > calculado com `remainingOf(session)`, sobre a linha que `findActive()` já trouxe — sessão longe
-  > de qualquer prazo não custa consulta, então o tick é **1 consulta** independente de N (antes era
-  > `remaining(sessionId)` por linha: N+1 transações a cada 10s). As poucas sessões dentro da janela
-  > são relidas antes da ação, porque a foto do `findActive()` envelhece enquanto a varredura roda —
-  > um heartbeat que chega no meio dela precisa contar, ou desloga-se quem está trabalhando; e uma
-  > sessão destruída nesse meio-tempo não pode receber `warning`.
-  > Limitação conhecida: a varredura só enxerga expiração absoluta sendo cruzada na janela entre
-  > dois ticks (candidatos vêm de `expires_at > agora`); em escala, quem garante a limpeza é a
-  > `SpringSessionLiteCleanupTask` já existente (`cleanup-enabled`), que **não** empurra SSE — uma
-  > sessão varrida por ela em vez da idle-watch não é notificada. Aceito para esta fase (hub de
-  > instância única).
-- **`SpringSessionLiteSseSessionEventListener`** — ponte entre os eventos de domínio
-  (`SessionDestroyedEvent`/`SessionRenewedEvent`) e o broadcaster, empurrando `logout`/`renew`
-  **imediatamente** (não só no próximo tick da idle-watch), para `POST /session/logout|renew`, a
-  própria idle-watch, ou qualquer chamador futuro — sem que o código que dispara o evento precise
-  saber que SSE existe.
-
-Payloads: `SpringSessionLiteSseLogoutEvent(sessionId)`,
-`SpringSessionLiteSseRenewEvent(sessionId, absoluteRemainingMs, idleRemainingMs)`,
-`SpringSessionLiteSseWarningEvent(sessionId, remainingMs, absoluteRemainingMs, idleRemainingMs, cause)`
-(`cause` = `"idle"` ou `"absolute"`, o prazo mais próximo).
-
----
-
-## 13. Limpeza de sessões expiradas
+## 12. Limpeza de sessões expiradas
 
 `SpringSessionLiteCleanupTask` (`@Scheduled`, cron configurável) faz
 `DELETE WHERE expires_at < agora`. Registrada apenas com `cleanup-enabled=true` (default), que
@@ -344,19 +270,18 @@ também ativa o `@EnableScheduling` interno — sem forçar scheduling global qu
 
 ---
 
-## 14. Extensibilidade
+## 13. Extensibilidade
 
 - **`SpringSessionLiteSessionStore`** — troque o backend (Redis/Mongo) fornecendo seu próprio
   bean (`@ConditionalOnMissingBean`).
 - **Eventos** — consuma `@EventListener` para auditoria/observabilidade (inclui
   `SpringSessionLiteSessionRenewedEvent` desde a 2.1).
-- **`SessionEventBroadcaster`** — ponto de extensão para push SSE horizontal (pub/sub), ver §12.
 - **Beans condicionais** — todos os beans são `@ConditionalOnMissingBean`, então qualquer peça
   pode ser sobrescrita.
 
 ---
 
-## 15. Decisões de projeto
+## 14. Decisões de projeto
 
 | Decisão | Motivo |
 |---------|--------|
@@ -367,13 +292,9 @@ também ativa o `@EnableScheduling` interno — sem forçar scheduling global qu
 | `ResponseCookie` | Única API com suporte a `SameSite`. |
 | HMAC-SHA256 do IP com salt | Não guardar IP em texto puro; resistir a rainbow tables. |
 | `SessionStore` como interface | Backend de sessão substituível. |
-| Registry SSE chaveado por `sessionId` (não `userId`) | Um evento SSE descreve UMA sessão. Entregá-lo a outra sessão do mesmo usuário mostra aviso que a aba não consegue dispensar e desloga quem está ativo — e a aba não tem como recusar, pois não sabe o próprio `sessionId`. |
-| `validate()` não registra atividade | O client observa a sessão sozinho (poll de `/status` + `/stream`); se observar contasse como atividade, `max-idle` nunca fecharia. Só o heartbeat conta. |
+| `validate()` não registra atividade | O client observa a sessão sozinho (poll de `/status`); se observar contasse como atividade, `max-idle` nunca fecharia. Só o heartbeat conta. |
 | `touch()` sem throttle | O client já limita o heartbeat a `heartbeat-interval`; throttlar de novo descartava o único sinal de atividade e deslogava usuário ativo. |
 | `max-idle` default `0` (desativado) | Recurso aditivo/opt-in — nenhum comportamento existente muda. |
 | Throttle efetivo `min(last-accessed-throttle, max-idle / 2)` | Sem isso, um throttle alto atrasaria a própria detecção de inatividade. |
-| Endpoints/SSE em `@AutoConfiguration` separadas | Consumidor liga por property, sem escrever controller. |
-| `SessionEventBroadcaster` como interface | Push SSE trocável por implementação horizontal (pub/sub). |
-| Idle-watch agendada por `SchedulingConfigurer`, não `@Scheduled` | `fixedDelayString` só aceita millis ou ISO-8601; `idle-watch-interval=10s` (a grafia relaxada usada por todas as outras durations) explodiria no startup. |
-| Envio SSE em filas particionadas por `sessionId` | Uma fila só: um cliente travado congela o push de todo mundo. Uma thread por envio: os eventos de uma sessão podem inverter (`warning` depois de `logout`). Particionar preserva a ordem por sessão e limita o estrago de um cliente travado. |
-| Releitura antes de agir na varredura (não na triagem) | A foto do `findActive()` envelhece durante o tick: agir por ela desloga quem mandou heartbeat no meio da varredura. Reler só o que a triagem marcou mantém o custo em 1 consulta por tick no caso comum. |
+| Endpoints em `@AutoConfiguration` separada | Consumidor liga por property, sem escrever controller. |
+| Sem push por servidor (SSE removido na 3.0.0) | Um `SseEmitter` sem timeout custa uma conexão TCP permanente por aba aberta, e seu registry em memória prende o hub a uma réplica só. O poll de `/status` já carrega `idle/absoluteRemainingMs`, então o aviso e o logout saem dele; o push só entregava latência. |
