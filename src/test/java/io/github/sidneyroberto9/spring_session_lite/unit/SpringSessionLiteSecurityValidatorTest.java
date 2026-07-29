@@ -43,15 +43,19 @@ class SpringSessionLiteSecurityValidatorTest {
                 .toList();
     }
 
+    /**
+     * Matches on the comparison, not on {@code 'warning-before'} alone: the status-poll warning
+     * names that property too, so a looser filter counts it as a max-idle warning.
+     */
     private List<ILoggingEvent> warningBeforeWarnings() {
         return appender.list.stream()
-                .filter(event -> event.getFormattedMessage().contains("'warning-before'"))
+                .filter(event -> event.getFormattedMessage().contains("is >= 'max-idle'"))
                 .toList();
     }
 
-    private List<ILoggingEvent> idleWatchIntervalWarnings() {
+    private List<ILoggingEvent> statusPollIntervalWarnings() {
         return appender.list.stream()
-                .filter(event -> event.getFormattedMessage().contains("'idle-watch-interval'"))
+                .filter(event -> event.getFormattedMessage().contains("'status-poll-interval'"))
                 .toList();
     }
 
@@ -141,58 +145,30 @@ class SpringSessionLiteSecurityValidatorTest {
     }
 
     /**
-     * The sweep is the only thing that pushes the inactivity warning. At a cadence no shorter than
-     * `warning-before`, a session can go from outside the warning window to expired between two
-     * ticks, so the client is logged out without ever having been warned.
+     * The client's status poll is the only thing that raises the inactivity warning. At a cadence no
+     * shorter than `warning-before`, a session can go from outside the warning window to expired
+     * between two polls, so the user is logged out without ever having seen the card.
      */
     @Test
-    void warnsWhenIdleWatchIntervalIsNotBelowWarningBefore() {
+    void warnsWhenStatusPollIntervalIsNotBelowWarningBefore() {
         SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
-        properties.setSseEnabled(true);
         properties.setWarningBefore(Duration.ofSeconds(60));
-        properties.setIdleWatchInterval(Duration.ofSeconds(60));
+        properties.setStatusPollInterval(Duration.ofSeconds(60));
 
         validate(properties);
 
-        assertThat(idleWatchIntervalWarnings()).hasSize(1);
+        assertThat(statusPollIntervalWarnings()).hasSize(1);
     }
 
     @Test
-    void doesNotWarnWhenIdleWatchIntervalIsWellBelowWarningBefore() {
+    void doesNotWarnWhenStatusPollIntervalIsWellBelowWarningBefore() {
         SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
-        properties.setSseEnabled(true);
-        properties.setWarningBefore(Duration.ofSeconds(60));
-        properties.setIdleWatchInterval(Duration.ofSeconds(10));
+        properties.setWarningBefore(Duration.ofSeconds(120));
+        properties.setStatusPollInterval(Duration.ofSeconds(30));
 
         validate(properties);
 
-        assertThat(idleWatchIntervalWarnings()).isEmpty();
-    }
-
-    @Test
-    void doesNotWarnAboutIdleWatchIntervalWhenSseIsDisabled() {
-        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
-        properties.setWarningBefore(Duration.ofSeconds(10));
-        properties.setIdleWatchInterval(Duration.ofSeconds(60));
-
-        validate(properties);
-
-        assertThat(idleWatchIntervalWarnings()).isEmpty();
-    }
-
-    /**
-     * An empty {@code idle-watch-interval=} binds to {@code null}; that is rejected outright by the
-     * SSE autoconfiguration, so this validator must not NPE on the way there.
-     */
-    @Test
-    void doesNotWarnAboutIdleWatchIntervalWhenItIsNull() {
-        SpringSessionLiteProperties properties = new SpringSessionLiteProperties();
-        properties.setSseEnabled(true);
-        properties.setIdleWatchInterval(null);
-
-        validate(properties);
-
-        assertThat(idleWatchIntervalWarnings()).isEmpty();
+        assertThat(statusPollIntervalWarnings()).isEmpty();
     }
 
     /**

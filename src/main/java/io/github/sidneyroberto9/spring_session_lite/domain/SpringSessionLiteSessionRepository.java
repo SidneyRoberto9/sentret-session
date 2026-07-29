@@ -5,14 +5,11 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 
 public interface SpringSessionLiteSessionRepository extends JpaRepository<SpringSessionLiteSession, String> {
 
     Optional<SpringSessionLiteSession> findBySessionId(String sessionId);
-
-    List<SpringSessionLiteSession> findByExpiresAtAfter(Instant cutoff);
 
     @Modifying
     @Transactional

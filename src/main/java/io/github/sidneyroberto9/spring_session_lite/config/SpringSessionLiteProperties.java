@@ -168,29 +168,4 @@ public class SpringSessionLiteProperties {
      */
     private String endpointsBasePath = "/session";
 
-    /**
-     * Register the opt-in SSE push stack: {@code GET <endpoints-base-path>/stream}, the
-     * in-memory emitter registry/broadcaster, the idle-watch sweep (which pushes {@code warning}
-     * within {@link #warningBefore} and {@code logout} when idle/absolute expiry is crossed), and
-     * the listener that pushes {@code logout}/{@code renew} immediately on
-     * {@code SessionDestroyedEvent}/{@code SessionRenewedEvent}. Off by default; existing
-     * consumers are unaffected until they explicitly enable this. Independent of
-     * {@link #endpointsEnabled}/{@link #cleanupEnabled}.
-     */
-    private boolean sseEnabled = false;
-
-    /**
-     * How often the idle-watch sweep runs when {@link #sseEnabled} is on. Must be positive; the SSE
-     * autoconfiguration reads this bound value and hands it to the scheduling registrar (which is
-     * why it is a {@code Duration} here and not a {@code @Scheduled(fixedDelayString)} placeholder —
-     * that attribute rejects the relaxed {@code "10s"} spelling every other duration in this
-     * namespace uses).
-     *
-     * <p>The sweep shares the host application's {@code TaskScheduler} (default pool size: 1), so a
-     * shorter interval on a hub with many live sessions competes with every other {@code @Scheduled}
-     * bean in that application.
-     *
-     * @since 2.3.0
-     */
-    private Duration idleWatchInterval = Duration.ofSeconds(10);
 }

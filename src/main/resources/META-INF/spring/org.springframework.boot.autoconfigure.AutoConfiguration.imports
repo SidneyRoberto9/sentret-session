@@ -1,3 +1,2 @@
 io.github.sidneyroberto9.spring_session_lite.autoconfigure.SpringSessionLiteAutoConfiguration
 io.github.sidneyroberto9.spring_session_lite.autoconfigure.SpringSessionLiteEndpointsAutoConfiguration
-io.github.sidneyroberto9.spring_session_lite.autoconfigure.SpringSessionLiteSseAutoConfiguration

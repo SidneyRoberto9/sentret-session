@@ -79,15 +79,4 @@ class JpaSpringSessionLiteSessionStoreTest {
         verify(repository).deleteByExpiresAtBefore(now);
     }
 
-    @Test
-    void findActiveDelegatesToRepositoryAndReturnsItsResult() {
-        Instant now = Instant.now();
-        List<SpringSessionLiteSession> active = List.of(session());
-        when(repository.findByExpiresAtAfter(now)).thenReturn(active);
-
-        List<SpringSessionLiteSession> result = store.findActive(now);
-
-        assertThat(result).isSameAs(active);
-        verify(repository).findByExpiresAtAfter(now);
-    }
 }
