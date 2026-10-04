@@ -17,8 +17,6 @@ import org.springframework.web.context.WebApplicationContext;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
-import java.util.List;
-import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
@@ -59,13 +57,10 @@ class SentretSessionControllerIntegrationTest {
         sessionRepository.deleteAll();
     }
 
-    private Cookie login(String userId, String email, List<String> roles) throws Exception {
-        String rolesJson = roles.stream().map(role -> "\"" + role + "\"").collect(Collectors.joining(",", "[", "]"));
-        String body = "{\"userId\":\"" + userId + "\",\"email\":\"" + email + "\",\"roles\":" + rolesJson + "}";
-
+    private Cookie login(String userId, String email) throws Exception {
         MvcResult result = mockMvc.perform(post("/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(body))
+                        .content("{\"userId\":\"" + userId + "\",\"email\":\"" + email + "\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -99,14 +94,13 @@ class SentretSessionControllerIntegrationTest {
 
     @Test
     void statusWithValidCookieReturnsAuthenticatedUserAndRemainingMs() throws Exception {
-        Cookie cookie = login("user1", "user1@test.com", List.of("ADMIN", "USER"));
+        Cookie cookie = login("user1", "user1@test.com");
 
         mockMvc.perform(get("/session/status").cookie(cookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.authenticated").value(true))
                 .andExpect(jsonPath("$.userId").value("user1"))
                 .andExpect(jsonPath("$.email").value("user1@test.com"))
-                .andExpect(jsonPath("$.roles", org.hamcrest.Matchers.containsInAnyOrder("ADMIN", "USER")))
                 .andExpect(jsonPath("$.absoluteRemainingMs").value(org.hamcrest.Matchers.greaterThan(0)))
                 .andExpect(jsonPath("$.absoluteRemainingMs").value(org.hamcrest.Matchers.lessThanOrEqualTo((int) TTL_MS)))
                 .andExpect(jsonPath("$.idleRemainingMs").value(org.hamcrest.Matchers.greaterThan(0)))
@@ -125,7 +119,7 @@ class SentretSessionControllerIntegrationTest {
 
     @Test
     void heartbeatAdvancesLastAccessedAtAndReturnsCurrentStatus() throws Exception {
-        Cookie cookie = login("user2", "user2@test.com", List.of());
+        Cookie cookie = login("user2", "user2@test.com");
         String sessionId = sessionIdFrom(cookie);
 
         // Push lastAccessedAt beyond the effective throttle (min(5m default, maxIdle/2=5m) = 5m)
@@ -162,7 +156,7 @@ class SentretSessionControllerIntegrationTest {
      */
     @Test
     void statusPollDoesNotAdvanceLastAccessedAt() throws Exception {
-        Cookie cookie = login("user-poll", "poll@test.com", List.of());
+        Cookie cookie = login("user-poll", "poll@test.com");
         String sessionId = sessionIdFrom(cookie);
 
         // Well past the effective throttle (5m): a touch here would definitely fire and be visible.
@@ -188,7 +182,7 @@ class SentretSessionControllerIntegrationTest {
      */
     @Test
     void statusPollDoesNotRescueIdleExpiredSession() throws Exception {
-        Cookie cookie = login("user-idle", "idle@test.com", List.of());
+        Cookie cookie = login("user-idle", "idle@test.com");
         String sessionId = sessionIdFrom(cookie);
 
         // Idle for 11m against max-idle=10m: already past the window.
@@ -209,7 +203,7 @@ class SentretSessionControllerIntegrationTest {
 
     @Test
     void renewResetsAbsoluteExpiryAndReturnsStatus() throws Exception {
-        Cookie cookie = login("user3", "user3@test.com", List.of());
+        Cookie cookie = login("user3", "user3@test.com");
         String sessionId = sessionIdFrom(cookie);
 
         Instant nearExpiry = Instant.now().plusSeconds(60);
@@ -240,7 +234,7 @@ class SentretSessionControllerIntegrationTest {
 
     @Test
     void logoutClearsSessionThenNextRequestReturns401() throws Exception {
-        Cookie cookie = login("user4", "user4@test.com", List.of());
+        Cookie cookie = login("user4", "user4@test.com");
         String sessionId = sessionIdFrom(cookie);
         assertThat(sessionRepository.findBySessionId(sessionId)).isPresent();
 

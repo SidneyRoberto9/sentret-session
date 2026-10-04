@@ -3,6 +3,7 @@ package io.github.sidneyroberto9.sentret.unit;
 import io.github.sidneyroberto9.sentret.config.SentretProperties;
 import io.github.sidneyroberto9.sentret.domain.SentretSession;
 import io.github.sidneyroberto9.sentret.security.SentretAuthenticationFilter;
+import io.github.sidneyroberto9.sentret.security.SentretUser;
 import io.github.sidneyroberto9.sentret.service.SentretCookieManager;
 import io.github.sidneyroberto9.sentret.service.SentretService;
 import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
@@ -14,6 +15,7 @@ import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mock.web.MockFilterChain;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 
 import java.time.Duration;
@@ -178,14 +180,14 @@ class SentretAuthenticationFilterTest {
     // --- authorities: bare role names get a ROLE_ prefix, already-prefixed ones are left alone ---
 
     @Test
-    void authenticatesWithBothBareAndPrefixedRoleNames() throws Exception {
-        SentretSession session = sessionIdleFor(Duration.ofSeconds(1), Instant.now());
-        session.setRoles("ADMIN,ROLE_SUPPORT");
+    void authenticatesWithTheUserAsPrincipalAndNoAuthorities() throws Exception {
+        sessionIdleFor(Duration.ofSeconds(1), Instant.now());
 
         doFilter(request("GET", "/api/documents"));
 
-        assertThat(SecurityContextHolder.getContext().getAuthentication().getAuthorities())
-                .extracting(Object::toString)
-                .containsExactlyInAnyOrder("ROLE_ADMIN", "ROLE_SUPPORT");
+        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        assertThat(auth.getPrincipal()).isInstanceOf(SentretUser.class);
+        assertThat(auth.isAuthenticated()).isTrue();
+        assertThat(auth.getAuthorities()).isEmpty();
     }
 }

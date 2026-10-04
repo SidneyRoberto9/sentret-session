@@ -40,9 +40,6 @@ public class SentretSession {
     @Column(name = "email")
     private String email;
 
-    @Column(name = "roles")
-    private String roles;
-
     @Column(name = "created_at")
     private Instant createdAt;
 

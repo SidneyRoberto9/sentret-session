@@ -16,7 +16,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.List;
 
 /**
  * Opt-in {@code /session/*} endpoints (base path configurable via
@@ -96,14 +95,13 @@ public class SentretSessionController {
                 true,
                 user.userId(),
                 user.email(),
-                user.roles(),
                 remaining.absoluteRemainingMs(),
                 remaining.idleRemainingMs(),
                 config);
     }
 
     private SessionStatusResponse anonymousStatus(SessionStatusResponse.Config config) {
-        return new SessionStatusResponse(false, null, null, null, null, null, config);
+        return new SessionStatusResponse(false, null, null, null, null, config);
     }
 
     private SessionStatusResponse.Config buildConfig() {
@@ -123,7 +121,6 @@ public class SentretSessionController {
             boolean authenticated,
             String userId,
             String email,
-            List<String> roles,
             Long absoluteRemainingMs,
             Long idleRemainingMs,
             Config config

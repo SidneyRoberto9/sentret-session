@@ -6,9 +6,7 @@ import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
-import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.filter.OncePerRequestFilter;
 
@@ -43,26 +41,17 @@ public class SentretAuthenticationFilter extends OncePerRequestFilter {
         Optional<SentretUser> user = sessionService.validate(sessionId);
 
         if (user.isEmpty()) {
-            // Invalid/expired cookie: do NOT short-circuit with 401 here — that would
-            // also block permit-all paths (e.g. re-login). Drop the dead cookie, stay anonymous,
-            // and let authorization + the AuthenticationEntryPoint decide the response.
+            // Invalid/expired cookie: do NOT short-circuit with 401 here — that would also block
+            // permit-all paths (e.g. re-login). Drop the dead cookie, stay anonymous, and let
+            // authorization + the AuthenticationEntryPoint decide the response.
             SecurityContextHolder.clearContext();
             cookieManager.clear(response);
             chain.doFilter(request, response);
             return;
         }
 
-        authenticate(user.get());
-        chain.doFilter(request, response);
-    }
-
-    private void authenticate(SentretUser user) {
-        List<SimpleGrantedAuthority> authorities = user.roles().stream()
-                .map(role -> role.startsWith("ROLE_") ? role : "ROLE_" + role)
-                .map(SimpleGrantedAuthority::new)
-                .toList();
-
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user, null, authorities);
+        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user.get(), null, List.of());
         SecurityContextHolder.getContext().setAuthentication(auth);
+        chain.doFilter(request, response);
     }
 }

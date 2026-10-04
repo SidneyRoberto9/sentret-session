@@ -55,7 +55,7 @@ class SentretSessionControllerTest {
 
     @Test
     void statusFallsBackToAnonymousWhenSessionVanishesBetweenAuthAndRemaining() {
-        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1", List.of());
+        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1");
         when(sessionService.remaining("sid-1")).thenReturn(Optional.empty());
 
         ResponseEntity<SentretSessionController.SessionStatusResponse> response = controller.status(user);
@@ -66,21 +66,20 @@ class SentretSessionControllerTest {
 
     @Test
     void statusReturnsAuthenticatedStatusWhenSessionIsPresent() {
-        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1", List.of("ADMIN"));
+        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1");
         when(sessionService.remaining("sid-1")).thenReturn(Optional.of(new SentretSessionRemaining(60_000L, 30_000L)));
 
         ResponseEntity<SentretSessionController.SessionStatusResponse> response = controller.status(user);
 
         assertThat(response.getBody().authenticated()).isTrue();
         assertThat(response.getBody().userId()).isEqualTo("user-1");
-        assertThat(response.getBody().roles()).containsExactly("ADMIN");
         assertThat(response.getBody().absoluteRemainingMs()).isEqualTo(60_000L);
         assertThat(response.getBody().idleRemainingMs()).isEqualTo(30_000L);
     }
 
     @Test
     void heartbeatTouchesSessionAndReturnsStatusWhenUserPresent() {
-        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1", List.of());
+        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1");
         when(sessionService.remaining("sid-1")).thenReturn(Optional.of(new SentretSessionRemaining(60_000L, null)));
 
         ResponseEntity<SentretSessionController.SessionStatusResponse> response = controller.heartbeat(user);
@@ -93,7 +92,7 @@ class SentretSessionControllerTest {
     void renewReturnsStatusWhenServiceRenews() {
         HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse httpResponse = mock(HttpServletResponse.class);
-        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1", List.of());
+        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1");
         when(sessionService.renew(request, httpResponse)).thenReturn(Optional.of(user));
         when(sessionService.remaining("sid-1")).thenReturn(Optional.of(new SentretSessionRemaining(60_000L, null)));
 

@@ -16,7 +16,6 @@ import org.springframework.web.context.WebApplicationContext;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -92,7 +91,8 @@ class SentretApplicationTests {
         mockMvc.perform(get("/me").cookie(cookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.userId").value("user1"))
-                .andExpect(jsonPath("$.email").value("user1@test.com"));
+                .andExpect(jsonPath("$.email").value("user1@test.com"))
+                .andExpect(jsonPath("$.roles").doesNotExist());
     }
 
     @Test
@@ -170,12 +170,4 @@ class SentretApplicationTests {
         assertThat(sessionRepository.findBySessionId(cookie.getValue())).isEmpty();
     }
 
-    @Test
-    void loginWithRolesExposesRolesInPrincipal() throws Exception {
-        Cookie cookie = loginWithBody("{\"userId\":\"user7\",\"email\":\"user7@test.com\",\"roles\":[\"ADMIN\",\"USER\"]}");
-
-        mockMvc.perform(get("/me").cookie(cookie))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.roles", containsInAnyOrder("ADMIN", "USER")));
-    }
 }

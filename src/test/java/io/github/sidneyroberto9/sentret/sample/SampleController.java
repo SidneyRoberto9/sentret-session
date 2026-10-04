@@ -5,18 +5,12 @@ import io.github.sidneyroberto9.sentret.service.SentretService;
 import io.github.sidneyroberto9.sentret.web.SentretCurrentSession;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.AllArgsConstructor;
-import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
-
-import java.util.List;
 
 @RestController
 @RequiredArgsConstructor
@@ -26,9 +20,7 @@ public class SampleController {
 
     @PostMapping("/login")
     public ResponseEntity<SentretUser> login(@RequestBody LoginRequest body, HttpServletResponse response) {
-
-        List<String> roles = body.getRoles() == null ? List.of() : body.getRoles();
-        SentretUser user = sessionService.login(body.getUserId(), body.getEmail(), roles, response);
+        SentretUser user = sessionService.login(body.userId(), body.email(), response);
         return ResponseEntity.ok(user);
     }
 
@@ -46,18 +38,6 @@ public class SampleController {
         return ResponseEntity.ok(user);
     }
 
-    @Getter
-    @Setter
-    @NoArgsConstructor
-    @AllArgsConstructor
-    public static class LoginRequest {
-        private String userId;
-        private String email;
-        private List<String> roles;
-
-        public LoginRequest(String userId, String email) {
-            this.userId = userId;
-            this.email = email;
-        }
+    public record LoginRequest(String userId, String email) {
     }
 }

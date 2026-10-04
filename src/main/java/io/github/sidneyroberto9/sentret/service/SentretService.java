@@ -16,8 +16,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 
 @RequiredArgsConstructor
@@ -29,18 +27,12 @@ public class SentretService {
 
     @Transactional
     public SentretUser login(String userId, String email, HttpServletResponse response) {
-        return this.login(userId, email, List.of(), response);
-    }
-
-    @Transactional
-    public SentretUser login(String userId, String email, List<String> roles, HttpServletResponse response) {
         Instant now = Instant.now();
 
         SentretSession session = new SentretSession();
         session.setSessionId(NanoId.generate(properties.getSessionIdLength()));
         session.setUserId(userId);
         session.setEmail(email);
-        session.setRoles(joinRoles(roles));
         session.setCreatedAt(now);
         session.setLastAccessedAt(now);
         session.setExpiresAt(now.plus(properties.getTtl()));
@@ -241,25 +233,6 @@ public class SentretService {
     }
 
     private SentretUser toUser(SentretSession session) {
-        return new SentretUser(session.getUserId(), session.getEmail(), session.getSessionId(), splitRoles(session.getRoles()));
-    }
-
-    static String joinRoles(List<String> roles) {
-        if (roles == null || roles.isEmpty()) {
-            return null;
-        }
-
-        return String.join(",", roles);
-    }
-
-    static List<String> splitRoles(String roles) {
-        if (roles == null || roles.isBlank()) {
-            return List.of();
-        }
-
-        return Arrays.stream(roles.split(","))
-                .map(String::trim)
-                .filter(role -> !role.isEmpty())
-                .toList();
+        return new SentretUser(session.getUserId(), session.getEmail(), session.getSessionId());
     }
 }

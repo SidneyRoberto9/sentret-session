@@ -45,7 +45,7 @@ class SentretUserServiceTest {
 
     @Test
     void returnsUserWhenPrincipalIsSentretUser() {
-        SentretUser principal = new SentretUser("user-1", "john@example.com", "session-1", List.of("ROLE_USER"));
+        SentretUser principal = new SentretUser("user-1", "john@example.com", "session-1");
         SecurityContextHolder.setContext(new SecurityContextImpl(
                 new TestingAuthenticationToken(principal, null)));
 
@@ -56,6 +56,5 @@ class SentretUserServiceTest {
         assertThat(result.get().userId()).isEqualTo("user-1");
         assertThat(result.get().email()).isEqualTo("john@example.com");
         assertThat(result.get().sessionId()).isEqualTo("session-1");
-        assertThat(result.get().roles()).containsExactly("ROLE_USER");
     }
 }

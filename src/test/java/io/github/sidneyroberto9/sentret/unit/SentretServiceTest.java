@@ -59,15 +59,6 @@ class SentretServiceTest {
 
     // --- login(): 4-arg overload delegates to the 5-arg one with no roles ---
 
-    @Test
-    void loginWithoutRolesDelegatesToRolesOverloadWithEmptyRoles() {
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        SentretUser user = service.login("user-1", "user@test.com", response);
-
-        assertThat(user.roles()).isEmpty();
-        verify(store).save(any());
-    }
 
     // --- logoutAll() ---
 
@@ -195,40 +186,8 @@ class SentretServiceTest {
 
     // --- joinRoles()/splitRoles(): null vs blank vs populated, and blank-entry filtering ---
 
-    @Test
-    void loginWithNullRolesStoresNullRoles() {
-        MockHttpServletResponse response = new MockHttpServletResponse();
 
-        SentretUser user = service.login("user-1", "user@test.com", null, response);
 
-        assertThat(user.roles()).isEmpty();
-    }
-
-    @Test
-    void validateSplitsBlankStoredRolesAsEmptyList() {
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setRoles("   ");
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        Optional<SentretUser> result = service.validate("sid");
-
-        assertThat(result).isPresent();
-        assertThat(result.get().roles()).isEmpty();
-    }
-
-    @Test
-    void validateFiltersOutBlankEntriesFromStoredRoles() {
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setRoles("ADMIN,,USER");
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        Optional<SentretUser> result = service.validate("sid");
-
-        assertThat(result).isPresent();
-        assertThat(result.get().roles()).containsExactly("ADMIN", "USER");
-    }
 
     // --- validate(): inactivity expiration ---
 
