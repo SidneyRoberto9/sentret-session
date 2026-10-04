@@ -1,6 +1,5 @@
 package io.github.sidneyroberto9.sentret.integration;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import io.github.sidneyroberto9.sentret.domain.SentretSessionRepository;
 import io.github.sidneyroberto9.sentret.sample.SampleApplication;
 import io.github.sidneyroberto9.sentret.sample.SampleController;
@@ -8,19 +7,22 @@ import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -34,7 +36,6 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * plan's "Verificação" section for this task.
  */
 @SpringBootTest(classes = SampleApplication.class)
-@AutoConfigureMockMvc
 @TestPropertySource(properties = {
         "sentret.endpoints-enabled=true",
         "sentret.max-idle=10m"
@@ -45,23 +46,26 @@ class SentretSessionControllerIntegrationTest {
     private static final long MAX_IDLE_MS = 10 * 60 * 1000L; // overridden above
 
     @Autowired
+    private WebApplicationContext context;
+
     private MockMvc mockMvc;
 
     @Autowired
     private SentretSessionRepository sessionRepository;
 
-    @Autowired
-    private ObjectMapper objectMapper;
-
     @BeforeEach
     void cleanDb() {
+        mockMvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
         sessionRepository.deleteAll();
     }
 
     private Cookie login(String userId, String email, List<String> roles) throws Exception {
+        String rolesJson = roles.stream().map(role -> "\"" + role + "\"").collect(Collectors.joining(",", "[", "]"));
+        String body = "{\"userId\":\"" + userId + "\",\"email\":\"" + email + "\",\"roles\":" + rolesJson + "}";
+
         MvcResult result = mockMvc.perform(post("/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(new SampleController.LoginRequest(userId, email, roles))))
+                        .content(body))
                 .andExpect(status().isOk())
                 .andReturn();
 

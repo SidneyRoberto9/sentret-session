@@ -2,40 +2,67 @@ package io.github.sidneyroberto9.sentret;
 
 import io.github.sidneyroberto9.sentret.domain.SentretSessionRepository;
 import io.github.sidneyroberto9.sentret.sample.SampleApplication;
-import io.github.sidneyroberto9.sentret.sample.SampleController;
-import io.github.sidneyroberto9.sentret.security.SentretUser;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.boot.test.web.client.TestRestTemplate;
-import org.springframework.boot.test.web.server.LocalServerPort;
-import org.springframework.http.*;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.web.context.WebApplicationContext;
 
 import java.time.Instant;
-import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsInAnyOrder;
+import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@SpringBootTest(classes = SampleApplication.class, webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+/**
+ * End-to-end behaviour through the real security filter chain. Uses only test APIs that are the
+ * same in Spring Boot 3 and 4 (no TestRestTemplate, no @AutoConfigureMockMvc).
+ */
+@SpringBootTest(classes = SampleApplication.class)
 class SentretApplicationTests {
 
-    @LocalServerPort
-    private int port;
-
     @Autowired
-    private TestRestTemplate rest;
+    private WebApplicationContext context;
 
     @Autowired
     private SentretSessionRepository sessionRepository;
 
+    private MockMvc mockMvc;
+
     @BeforeEach
-    void cleanDb() {
+    void setUp() {
+        mockMvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
         sessionRepository.deleteAll();
     }
 
-    private String base() {
-        return "http://localhost:" + port;
+    private Cookie login(String userId, String email) throws Exception {
+        return loginWithBody("{\"userId\":\"" + userId + "\",\"email\":\"" + email + "\"}");
+    }
+
+    private Cookie loginWithBody(String json) throws Exception {
+        MvcResult result = mockMvc.perform(post("/login").contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        Cookie cookie = result.getResponse().getCookie("SENTRETSID");
+        assertThat(cookie).isNotNull();
+        return cookie;
+    }
+
+    private void expire(String sessionId) {
+        sessionRepository.findBySessionId(sessionId).ifPresent(session -> {
+            session.setExpiresAt(Instant.now().minusSeconds(60));
+            sessionRepository.save(session);
+        });
     }
 
     @Test
@@ -43,15 +70,14 @@ class SentretApplicationTests {
     }
 
     @Test
-    void loginWritesCookieWithCorrectAttributes() {
-        ResponseEntity<SentretUser> response = rest.postForEntity(
-                base() + "/login",
-                new SampleController.LoginRequest("1", "test@test.com"),
-                SentretUser.class);
+    void loginWritesCookieWithCorrectAttributes() throws Exception {
+        MvcResult result = mockMvc.perform(post("/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"1\",\"email\":\"test@test.com\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
 
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-
-        String setCookie = response.getHeaders().getFirst("Set-Cookie");
+        String setCookie = result.getResponse().getHeader("Set-Cookie");
         assertThat(setCookie).isNotNull();
         assertThat(setCookie).contains("SENTRETSID=");
         assertThat(setCookie).containsIgnoringCase("HttpOnly");
@@ -60,169 +86,92 @@ class SentretApplicationTests {
     }
 
     @Test
-    void meWithValidCookieReturns200() {
-        String cookie = doLogin("user1", "user1@test.com");
+    void meWithValidCookieReturns200() throws Exception {
+        Cookie cookie = login("user1", "user1@test.com");
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("Cookie", cookie);
-
-        ResponseEntity<SentretUser> response = rest.exchange(
-                base() + "/me", HttpMethod.GET, new HttpEntity<>(headers), SentretUser.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(response.getBody()).isNotNull();
-        assertThat(response.getBody().userId()).isEqualTo("user1");
-        assertThat(response.getBody().email()).isEqualTo("user1@test.com");
+        mockMvc.perform(get("/me").cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value("user1"))
+                .andExpect(jsonPath("$.email").value("user1@test.com"));
     }
 
     @Test
-    void meWithNoCookieReturns401() {
-        ResponseEntity<String> response = rest.getForEntity(base() + "/me", String.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    void meWithNoCookieReturns401() throws Exception {
+        mockMvc.perform(get("/me")).andExpect(status().isUnauthorized());
     }
 
     @Test
-    void loginEndpointReachableWithoutSession() {
-        ResponseEntity<SentretUser> response = rest.postForEntity(
-                base() + "/login",
-                new SampleController.LoginRequest("x", "x@x.com"),
-                SentretUser.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+    void loginEndpointReachableWithoutSession() throws Exception {
+        login("x", "x@x.com");
     }
 
     @Test
-    void meWithTamperedCookieReturns401() {
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("Cookie", "SENTRETSID=tampered-session-id-that-does-not-exist");
-
-        ResponseEntity<String> response = rest.exchange(
-                base() + "/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    void meWithTamperedCookieReturns401() throws Exception {
+        mockMvc.perform(get("/me").cookie(new Cookie("SENTRETSID", "tampered-session-id-that-does-not-exist")))
+                .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void meWithExpiredSessionReturns401() {
-        String cookie = doLogin("user2", "user2@test.com");
-        String sessionId = sessionIdFrom(cookie);
+    void meWithExpiredSessionReturns401() throws Exception {
+        Cookie cookie = login("user2", "user2@test.com");
+        expire(cookie.getValue());
 
-        sessionRepository.findBySessionId(sessionId).ifPresent(s -> {
-            s.setExpiresAt(Instant.now().minusSeconds(60));
-            sessionRepository.save(s);
-        });
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("Cookie", cookie);
-
-        ResponseEntity<String> response = rest.exchange(
-                base() + "/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        mockMvc.perform(get("/me").cookie(cookie)).andExpect(status().isUnauthorized());
     }
 
     @Test
-    void cleanupRemovesExpiredSessions() {
-        String cookie = doLogin("user3", "user3@test.com");
-        String sessionId = sessionIdFrom(cookie);
-
-        sessionRepository.findBySessionId(sessionId).ifPresent(s -> {
-            s.setExpiresAt(Instant.now().minusSeconds(60));
-            sessionRepository.save(s);
-        });
-
+    void cleanupRemovesExpiredSessions() throws Exception {
+        Cookie cookie = login("user3", "user3@test.com");
+        expire(cookie.getValue());
         assertThat(sessionRepository.count()).isEqualTo(1);
 
         sessionRepository.deleteByExpiresAtBefore(Instant.now());
 
-        assertThat(sessionRepository.count()).isEqualTo(0);
+        assertThat(sessionRepository.count()).isZero();
     }
 
     @Test
-    void ipMismatchReturns401() {
-        String cookie = doLogin("user4", "user4@test.com");
-        String sessionId = sessionIdFrom(cookie);
-
-        sessionRepository.findBySessionId(sessionId).ifPresent(s -> {
-            s.setIpHash("0000000000000000000000000000000000000000000000000000000000000000");
-            sessionRepository.save(s);
+    void ipMismatchReturns401() throws Exception {
+        Cookie cookie = login("user4", "user4@test.com");
+        sessionRepository.findBySessionId(cookie.getValue()).ifPresent(session -> {
+            session.setIpHash("0000000000000000000000000000000000000000000000000000000000000000");
+            sessionRepository.save(session);
         });
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("Cookie", cookie);
-
-        ResponseEntity<String> response = rest.exchange(
-                base() + "/me", HttpMethod.GET, new HttpEntity<>(headers), String.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        mockMvc.perform(get("/me").cookie(cookie)).andExpect(status().isUnauthorized());
     }
 
     @Test
-    void loginWithDeadCookieStillReaches200() {
-        // Regression for 1.3: a stale/expired cookie must NOT block re-login on a permit-all path.
-        String cookie = doLogin("user5", "user5@test.com");
-        String sessionId = sessionIdFrom(cookie);
+    void loginWithDeadCookieStillReaches200() throws Exception {
+        // A stale/expired cookie must NOT block re-login on a permit-all path.
+        Cookie cookie = login("user5", "user5@test.com");
+        expire(cookie.getValue());
 
-        sessionRepository.findBySessionId(sessionId).ifPresent(s -> {
-            s.setExpiresAt(Instant.now().minusSeconds(60));
-            sessionRepository.save(s);
-        });
-
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("Cookie", cookie);
-
-        ResponseEntity<SentretUser> response = rest.exchange(
-                base() + "/login", HttpMethod.POST,
-                new HttpEntity<>(new SampleController.LoginRequest("user5", "user5@test.com"), headers),
-                SentretUser.class);
-
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
+        mockMvc.perform(post("/login").cookie(cookie)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"user5\",\"email\":\"user5@test.com\"}"))
+                .andExpect(status().isOk());
     }
 
     @Test
-    void logoutClearsCookieAndSession() {
-        String cookie = doLogin("user6", "user6@test.com");
-        String sessionId = sessionIdFrom(cookie);
-        assertThat(sessionRepository.findBySessionId(sessionId)).isPresent();
+    void logoutClearsCookieAndSession() throws Exception {
+        Cookie cookie = login("user6", "user6@test.com");
+        assertThat(sessionRepository.findBySessionId(cookie.getValue())).isPresent();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("Cookie", cookie);
+        MvcResult result = mockMvc.perform(post("/logout").cookie(cookie))
+                .andExpect(status().isNoContent())
+                .andReturn();
 
-        ResponseEntity<Void> logout = rest.exchange(
-                base() + "/logout", HttpMethod.POST, new HttpEntity<>(headers), Void.class);
-
-        assertThat(logout.getStatusCode()).isEqualTo(HttpStatus.NO_CONTENT);
-        assertThat(logout.getHeaders().getFirst("Set-Cookie")).containsIgnoringCase("Max-Age=0");
-        assertThat(sessionRepository.findBySessionId(sessionId)).isEmpty();
+        assertThat(result.getResponse().getHeader("Set-Cookie")).containsIgnoringCase("Max-Age=0");
+        assertThat(sessionRepository.findBySessionId(cookie.getValue())).isEmpty();
     }
 
     @Test
-    void loginWithRolesExposesRolesInPrincipal() {
-        SampleController.LoginRequest body = new SampleController.LoginRequest("user7", "user7@test.com", List.of("ADMIN", "USER"));
-        ResponseEntity<SentretUser> login = rest.postForEntity(base() + "/login", body, SentretUser.class);
-        String cookie = login.getHeaders().getFirst("Set-Cookie").split(";")[0];
+    void loginWithRolesExposesRolesInPrincipal() throws Exception {
+        Cookie cookie = loginWithBody("{\"userId\":\"user7\",\"email\":\"user7@test.com\",\"roles\":[\"ADMIN\",\"USER\"]}");
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.add("Cookie", cookie);
-
-        ResponseEntity<SentretUser> me = rest.exchange(
-                base() + "/me", HttpMethod.GET, new HttpEntity<>(headers), SentretUser.class);
-
-        assertThat(me.getStatusCode()).isEqualTo(HttpStatus.OK);
-        assertThat(me.getBody().roles()).containsExactlyInAnyOrder("ADMIN", "USER");
-    }
-
-    private String doLogin(String userId, String email) {
-        ResponseEntity<SentretUser> response = rest.postForEntity(
-                base() + "/login",
-                new SampleController.LoginRequest(userId, email),
-                SentretUser.class);
-        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
-        String setCookie = response.getHeaders().getFirst("Set-Cookie");
-        assertThat(setCookie).isNotNull();
-        return setCookie.split(";")[0];
-    }
-
-    private String sessionIdFrom(String cookie) {
-        return cookie.split("=", 2)[1];
+        mockMvc.perform(get("/me").cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.roles", containsInAnyOrder("ADMIN", "USER")));
     }
 }
