@@ -43,7 +43,16 @@ public class SentretProperties {
     /** CSRF protection on the default security chain. Keep SameSite=Lax/Strict when disabled. */
     private boolean csrfEnabled = false;
 
-    /** Origins allowed to call the API with the session cookie. CORS is on when this is not empty. */
+    /**
+     * Paths exempt from CSRF when {@link #csrfEnabled} is on, e.g. the app logout URL the npm client
+     * calls without a CSRF header. The hub's heartbeat and renew are always exempt.
+     */
+    private List<String> csrfIgnoredPaths = new ArrayList<>();
+
+    /**
+     * Origins allowed to call the API with the session cookie; patterns such as
+     * {@code https://*.example.com} are accepted. CORS is on when this is not empty.
+     */
     private List<String> corsAllowedOrigins = new ArrayList<>();
 
     private List<String> permitAllPaths = new ArrayList<>(List.of("/login", "/auth/**", "/public/**"));

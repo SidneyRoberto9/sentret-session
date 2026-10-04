@@ -30,7 +30,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 @SpringBootTest(classes = SampleApplication.class)
 @TestPropertySource(properties = {
         "sentret.csrf-enabled=true",
-        "sentret.cors-allowed-origins=http://example.com"
+        "sentret.csrf-ignored-paths=/logout",
+        "sentret.cors-allowed-origins=http://example.com,https://*.example.org"
 })
 class SentretAutoConfigurationIntegrationTest {
 
@@ -68,6 +69,37 @@ class SentretAutoConfigurationIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("{\"userId\":\"u1\",\"email\":\"u1@test.com\"}"))
                 .andExpect(status().isOk());
+    }
+
+    /**
+     * The npm client ends a session by POSTing to the app's logout URL without a CSRF header; an
+     * app can exempt that path, and nothing else, through csrf-ignored-paths.
+     */
+    @Test
+    void csrfIgnoredPathAcceptsARequestWithoutTheToken() throws Exception {
+        MvcResult first = mockMvc.perform(get("/public/ping")).andReturn();
+        Cookie xsrf = first.getResponse().getCookie("XSRF-TOKEN");
+        MvcResult login = mockMvc.perform(post("/login")
+                        .cookie(xsrf)
+                        .header("X-XSRF-TOKEN", xsrf.getValue())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"u2\",\"email\":\"u2@test.com\"}"))
+                .andExpect(status().isOk())
+                .andReturn();
+        Cookie session = login.getResponse().getCookie("SENTRETSID");
+
+        mockMvc.perform(post("/logout").cookie(session)).andExpect(status().isNoContent());
+        mockMvc.perform(get("/me").cookie(session)).andExpect(status().isUnauthorized());
+    }
+
+    /** Origin patterns such as https://*.example.org must work alongside credentials. */
+    @Test
+    void corsAcceptsAnOriginPattern() throws Exception {
+        mockMvc.perform(options("/login")
+                        .header("Origin", "https://app.example.org")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Access-Control-Allow-Origin", "https://app.example.org"));
     }
 
     @Test

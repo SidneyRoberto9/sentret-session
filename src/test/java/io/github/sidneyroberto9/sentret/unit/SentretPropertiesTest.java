@@ -54,6 +54,6 @@ class SentretPropertiesTest {
         assertThat(Arrays.stream(SentretProperties.class.getDeclaredFields()).filter(field -> !field.isSynthetic()).map(Field::getName))
                 .containsExactlyInAnyOrder(
                         "enabled", "ttl", "maxIdle", "cookieName", "cookieSecure", "cookieSameSite",
-                        "cookieDomain", "csrfEnabled", "corsAllowedOrigins", "permitAllPaths", "hub");
+                        "cookieDomain", "csrfEnabled", "csrfIgnoredPaths", "corsAllowedOrigins", "permitAllPaths", "hub");
     }
 }

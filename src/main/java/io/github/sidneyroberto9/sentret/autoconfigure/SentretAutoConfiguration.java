@@ -118,7 +118,7 @@ public class SentretAutoConfiguration {
             http.csrf(csrf -> csrf
                     .csrfTokenRepository(csrfTokenRepository(properties))
                     .csrfTokenRequestHandler(spaCsrfTokenRequestHandler())
-                    .ignoringRequestMatchers(csrfExemptHubPaths(properties)));
+                    .ignoringRequestMatchers(csrfExemptPaths(properties)));
         } else {
             http.csrf(AbstractHttpConfigurer::disable);
         }
@@ -149,16 +149,20 @@ public class SentretAutoConfiguration {
     }
 
     /**
-     * The npm client sends heartbeat and renew without a CSRF header. A forged one can only keep an
-     * existing session alive, so they are exempt; everything else still needs the token.
+     * The npm client sends heartbeat and renew without a CSRF header; a forged one can only keep an
+     * existing session alive, so they are exempt. Apps add their own paths (typically the logout
+     * URL the client calls) through csrf-ignored-paths. Everything else still needs the token.
      */
-    private static String[] csrfExemptHubPaths(SentretProperties properties) {
-        if (!properties.getHub().isEnabled()) {
-            return new String[0];
+    private static String[] csrfExemptPaths(SentretProperties properties) {
+        List<String> paths = new ArrayList<>(properties.getCsrfIgnoredPaths());
+
+        if (properties.getHub().isEnabled()) {
+            String basePath = properties.getHub().getBasePath();
+            paths.add(basePath + "/heartbeat");
+            paths.add(basePath + "/renew");
         }
 
-        String basePath = properties.getHub().getBasePath();
-        return new String[]{basePath + "/heartbeat", basePath + "/renew"};
+        return paths.toArray(String[]::new);
     }
 
     /**
@@ -175,7 +179,9 @@ public class SentretAutoConfiguration {
 
     private CorsConfigurationSource corsConfigurationSource(SentretProperties properties) {
         CorsConfiguration config = new CorsConfiguration();
-        config.setAllowedOrigins(properties.getCorsAllowedOrigins());
+        // Patterns, not plain origins: "https://*.example.com" works and "*" does not throw on
+        // every request when combined with credentials.
+        config.setAllowedOriginPatterns(properties.getCorsAllowedOrigins());
         config.setAllowedMethods(CORS_ALLOWED_METHODS);
         config.setAllowedHeaders(List.of("*"));
         config.setAllowCredentials(true);
