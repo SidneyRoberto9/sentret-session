@@ -13,14 +13,14 @@
     </parent>
 
     <groupId>io.github.sidneyroberto9</groupId>
-    <artifactId>spring-session-lite</artifactId>
-    <version>3.0.0</version>
+    <artifactId>sentret-session</artifactId>
+    <version>1.0.0</version>
     <packaging>jar</packaging>
 
-    <name>Spring Session Lite</name>
+    <name>Sentret</name>
 
     <description>
-        Lightweight database-backed session authentication starter for Spring Boot 3
+        Lightweight cookie-based session authentication starter for Spring Boot
     </description>
 
     <url>https://github.com/sidneyroberto9/spring-session-lite</url>

@@ -1,6 +1,6 @@
 -- Spring Session Lite — DDL for apps using ddl-auto=none/validate
 -- Run once in your database before starting the application.
--- Table and index names match the SpringSessionLiteSession entity exactly.
+-- Table and index names match the SentretSession entity exactly.
 
 -- MySQL / MariaDB
 CREATE TABLE spring_session_lite_sessions (

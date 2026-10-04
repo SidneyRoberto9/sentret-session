@@ -1,0 +1,188 @@
+package io.github.sidneyroberto9.sentret.autoconfigure;
+
+import io.github.sidneyroberto9.sentret.config.SentretProperties;
+import io.github.sidneyroberto9.sentret.config.SentretSecurityValidator;
+import io.github.sidneyroberto9.sentret.domain.SentretSession;
+import io.github.sidneyroberto9.sentret.domain.SentretSessionRepository;
+import io.github.sidneyroberto9.sentret.scheduler.SentretCleanupTask;
+import io.github.sidneyroberto9.sentret.security.SentretAuthenticationFilter;
+import io.github.sidneyroberto9.sentret.service.SentretCookieManager;
+import io.github.sidneyroberto9.sentret.service.SentretIpHasher;
+import io.github.sidneyroberto9.sentret.service.SentretIpResolver;
+import io.github.sidneyroberto9.sentret.service.SentretService;
+import io.github.sidneyroberto9.sentret.service.SentretUserService;
+import io.github.sidneyroberto9.sentret.store.JpaSentretSessionStore;
+import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
+import jakarta.persistence.EntityManagerFactory;
+import org.springframework.boot.autoconfigure.AutoConfiguration;
+import org.springframework.boot.autoconfigure.AutoConfigurationPackage;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration;
+import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Import;
+import org.springframework.scheduling.annotation.EnableScheduling;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
+import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.web.AuthenticationEntryPoint;
+import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.ArrayList;
+import java.util.List;
+
+@AutoConfiguration(
+        before = JpaRepositoriesAutoConfiguration.class,
+        after = HibernateJpaAutoConfiguration.class
+)
+@AutoConfigurationPackage(basePackageClasses = SentretSession.class)
+@ConditionalOnClass({EntityManagerFactory.class, SecurityFilterChain.class})
+@ConditionalOnProperty(prefix = "sentret", name = "enabled", matchIfMissing = true)
+@EnableConfigurationProperties(SentretProperties.class)
+@Import(SentretWebMvcConfiguration.class)
+public class SentretAutoConfiguration {
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SentretSecurityValidator sentretSecurityValidator(SentretProperties properties) {
+        return new SentretSecurityValidator(properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SentretIpResolver ipResolver(SentretProperties properties) {
+        return new SentretIpResolver(properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SentretIpHasher ipHasher(SentretProperties properties) {
+        return new SentretIpHasher(properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SentretCookieManager cookieManager(SentretProperties properties) {
+        return new SentretCookieManager(properties);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SentretSessionStore sentretSessionStore(SentretSessionRepository repository) {
+        return new JpaSentretSessionStore(repository);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SentretService sentretService(
+            SentretProperties properties,
+            SentretSessionStore store,
+            SentretCookieManager cookieManager,
+            SentretIpResolver ipResolver,
+            SentretIpHasher ipHasher,
+            ApplicationEventPublisher eventPublisher
+    ) {
+        return new SentretService(ipHasher, store, properties, ipResolver, eventPublisher, cookieManager);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SentretUserService sentretUserService() {
+        return new SentretUserService();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SentretAuthenticationFilter sentretAuthenticationFilter(
+            SentretService sentretService,
+            SentretCookieManager cookieManager
+    ) {
+        return new SentretAuthenticationFilter(sentretService, cookieManager);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(SecurityFilterChain.class)
+    public SecurityFilterChain sentretSecurityFilterChain(
+            HttpSecurity http,
+            SentretAuthenticationFilter sentretAuthenticationFilter,
+            SentretProperties properties
+    ) throws Exception {
+
+        AuthenticationEntryPoint entryPoint = (req, res, ex) -> {
+            res.setStatus(HttpStatus.UNAUTHORIZED.value());
+            res.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            res.getWriter().write("{\"error\":\"unauthorized\",\"message\":\"Authentication required\"}");
+        };
+
+        // The opt-in /session/* endpoints controller lives in a separate @AutoConfiguration
+        // (SentretEndpointsAutoConfiguration) so it can be conditioned independently on
+        // endpoints-enabled. Bean-instantiation order across two distinct @AutoConfiguration
+        // classes isn't guaranteed by before=/after=, so the permit-all path for /session/status
+        // is wired here instead, in the one place that already builds the default chain.
+        List<String> permitAll = new ArrayList<>(properties.getPermitAllPaths());
+        if (properties.isEndpointsEnabled()) {
+            permitAll.add(properties.getEndpointsBasePath() + "/status");
+        }
+
+        http
+                .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .logout(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
+                .authorizeHttpRequests(auth -> auth
+                        .requestMatchers(permitAll.toArray(String[]::new)).permitAll()
+                        .anyRequest().authenticated())
+                .addFilterBefore(sentretAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+
+        if (properties.isCsrfEnabled()) {
+            http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()));
+        } else {
+            http.csrf(AbstractHttpConfigurer::disable);
+        }
+
+        if (properties.isCorsEnabled()) {
+            http.cors(cors -> cors.configurationSource(corsConfigurationSource(properties)));
+        } else {
+            http.cors(AbstractHttpConfigurer::disable);
+        }
+
+        return http.build();
+    }
+
+    private CorsConfigurationSource corsConfigurationSource(SentretProperties properties) {
+        CorsConfiguration config = new CorsConfiguration();
+        config.setAllowedOrigins(properties.getCorsAllowedOrigins());
+        config.setAllowedMethods(properties.getCorsAllowedMethods());
+        config.setAllowedHeaders(List.of("*"));
+        config.setAllowCredentials(properties.isCorsAllowCredentials());
+
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        source.registerCorsConfiguration("/**", config);
+        return source;
+    }
+
+    @Configuration(proxyBeanMethods = false)
+    @ConditionalOnProperty(prefix = "sentret", name = "cleanup-enabled", matchIfMissing = true)
+    @EnableScheduling
+    static class CleanupConfiguration {
+
+        @Bean
+        @ConditionalOnMissingBean
+        public SentretCleanupTask sentretCleanupTask(SentretService sentretService) {
+            return new SentretCleanupTask(sentretService);
+        }
+    }
+}
