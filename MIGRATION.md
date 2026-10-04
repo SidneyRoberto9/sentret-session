@@ -1,3 +1,64 @@
+# Migração — spring-session-lite 3.x → Sentret 1.0.0
+
+## 1. Dependência
+
+```xml
+<artifactId>sentret-session</artifactId>
+<version>1.0.0</version>
+```
+
+A app precisa de `JdbcTemplate` (`spring-boot-starter-jdbc` ou `spring-boot-starter-data-jpa`).
+
+## 2. Banco
+
+Criar a tabela nova com `db/sentret-schema.sql` (ver README). A antiga pode ser apagada
+(`DROP TABLE spring_session_lite_sessions`): todo usuário faz login de novo uma vez.
+
+## 3. Propriedades
+
+| Antes (`spring-session-lite.*`) | Agora (`sentret.*`) |
+|---|---|
+| `ttl`, `max-idle`, `cookie-name`, `cookie-secure`, `cookie-same-site`, `cookie-domain`, `csrf-enabled`, `cors-allowed-origins`, `permit-all-paths`, `enabled` | mesmo nome |
+| `endpoints-enabled`, `endpoints-base-path` | `hub.enabled`, `hub.base-path` |
+| `heartbeat-interval`, `status-poll-interval`, `warning-before`, `login-url` | `hub.heartbeat-interval`, `hub.status-poll-interval`, `hub.warning-before`, `hub.login-url` |
+| `ip-hash-salt`, `trust-forwarded-for`, `trusted-proxy-count` | removidas (sem vínculo com IP) |
+| `cookie-prefix` | removida: use `cookie-name=__Host-SID` |
+| `cookie-path` | removida: sempre `/` |
+| `session-id-length` | removida: ID fixo de 20 caracteres |
+| `update-last-accessed`, `sliding-expiration`, `last-accessed-throttle` | removidas |
+| `cors-enabled`, `cors-allowed-methods`, `cors-allow-credentials` | removidas: CORS liga sozinho com `cors-allowed-origins` |
+| `cleanup-enabled`, `cleanup-cron` | removidas: limpeza acontece no login |
+| `logout-url`, `redirect-after-expiry-url` | removidas: use `hub.login-url` |
+| `max-idle` padrão `0` | padrão agora é `30m` |
+
+## 4. Código
+
+| Antes | Agora |
+|---|---|
+| `io.github.sidneyroberto9.spring_session_lite.*` / `SpringSessionLite*` | `io.github.sidneyroberto9.sentret.*` / `Sentret*` |
+| `login(userId, email, request, response)` / `login(userId, email, roles, request, response)` | `login(userId, email, response)` |
+| `SpringSessionLiteUser.roles()` | removido: busque as roles na sua app pelo `userId` |
+| `@SpringSessionLiteCurrentSession SpringSessionLiteUser user` | `@AuthenticationPrincipal SentretUser user` |
+| `validate(sessionId, request)` | `validate(sessionId)` |
+| `deleteExpired()`, `remaining(...)` | removidos |
+| `SessionRenewedEvent(userId, sessionId, renewedAt, absoluteRemainingMs, idleRemainingMs)` | `SentretSessionRenewedEvent(userId, sessionId, renewedAt)` |
+| `SessionDestroyedEvent(sessionId)` | `SentretSessionDestroyedEvent(userId, sessionId)` |
+| `SpringSessionLiteSessionStore` (`save`, …) | `SentretSessionStore` (`insert`, `updateLastAccessedAt`, `updateExpiresAt`, …) |
+
+## 5. Comportamento
+
+- **Cookie padrão:** `SLSID` → `SENTRETSID` (quem já define `cookie-name` não é afetado).
+- **Agendamento:** a lib não liga mais `@EnableScheduling`. Se sua app tem `@Scheduled` próprios e
+  nunca declarou `@EnableScheduling`, eles param — adicione `@EnableScheduling` na sua app.
+- **401:** sem corpo (antes `{"error":"unauthorized",...}`).
+- **Troca de IP** não derruba mais a sessão.
+- **Hub:** `POST /logout` não existe mais (o client nunca usou). O `config` do status traz só
+  `heartbeatIntervalMs`, `statusPollIntervalMs`, `warningBeforeMs` e `loginUrl`.
+- **`renew`** não ressuscita sessão expirada (nem por inatividade).
+
+---
+
+
 # Migração — 1.0.x → 2.0.0
 
 A versão **2.0.0** contém mudanças **breaking** em relação a `1.0.0`/`1.0.1` (publicadas no
