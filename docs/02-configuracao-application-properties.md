@@ -1,112 +1,94 @@
-# Spring Session Lite — Configuração
+# Sentret — Configuração (`application.properties`)
 
-Todas as propriedades usam o prefixo **`spring-session-lite`** e têm valores padrão. Declare
-apenas o que quiser sobrescrever.
+Todas as propriedades usam o prefixo `sentret` e **todas têm padrão**: a lib funciona sem nenhuma
+configuração.
 
 ---
 
-## 1. Tabela de propriedades
+## 1. Núcleo
 
 | Propriedade | Tipo | Padrão | Descrição |
-|-------------|------|--------|-----------|
-| `enabled` | `boolean` | `true` | Liga/desliga toda a biblioteca sem remover a dependência. |
-| `cookie-name` | `String` | `SLSID` | Nome do cookie que carrega o NanoID da sessão. |
-| `cookie-prefix` | `String` | _(vazio)_ | Prefixo do cookie (`__Host-`/`__Secure-`) para endurecimento. `__Host-` exige `cookie-secure=true`, `cookie-path=/` e sem `cookie-domain`. |
-| `ttl` | `Duration` | `8h` | Tempo de vida da sessão e `Max-Age` do cookie. |
-| `cookie-secure` | `boolean` | `true` | Atributo `Secure` (só trafega via HTTPS). |
-| `cookie-same-site` | `String` | `Lax` | `Lax`, `Strict` ou `None`. |
-| `cookie-path` | `String` | `/` | Atributo `Path`. |
-| `cookie-domain` | `String` | _(vazio)_ | Atributo `Domain`. Vazio = host-only. |
-| `session-id-length` | `int` | `21` | Tamanho do NanoID (≈128 bits). |
-| `ip-hash-salt` | `String` | _(default interno)_ | Salt do HMAC-SHA256 do IP. **Troque em produção** — aviso no startup se mantido com `cookie-secure=true`. |
-| `trust-forwarded-for` | `boolean` | `false` | Usa `X-Forwarded-For`. Habilite só atrás de proxy confiável. |
-| `trusted-proxy-count` | `int` | `1` | Nº de proxies confiáveis que acrescentam ao XFF. O IP do cliente é lido na posição `(total - count)` a partir da esquerda — nunca o left-most (falsificável). |
-| `update-last-accessed` | `boolean` | `true` | Atualiza `last_accessed_at` quando há atividade — desde 2.1.1, atividade significa `POST /session/heartbeat`, não qualquer validação. |
-| `last-accessed-throttle` | `Duration` | `5m` | **Obsoleto — sem efeito desde 2.1.2.** Throttlava as escritas de `last_accessed_at` quando toda requisição tocava a sessão; hoje só o heartbeat toca, e o client já o limita a `heartbeat-interval`. Throttlar aqui descartava atividade real e deslogava usuário ativo. Remova das suas properties. |
-| `sliding-expiration` | `boolean` | `false` | Estende `expires_at` na atividade (heartbeat). |
-| `max-idle` | `Duration` | `0` (desativado) | Janela máxima de inatividade, avaliada em `validate()` contra `last_accessed_at` (ou `created_at`, se nunca houve acesso). `0`/ausente desativa o idle-check, preservando o comportamento pré-2.1. Habilitado, força a atualização de `last_accessed_at` a cada `touch()` (mesmo com `update-last-accessed=false`). **Exige heartbeat:** desde 2.1.1 só `POST /session/heartbeat` reinicia a janela — sem um client enviando heartbeat, a sessão expira por inatividade mesmo em uso. |
-| `heartbeat-interval` | `Duration` | `60s` | Intervalo sugerido para o frontend enviar `POST /session/heartbeat`. Só eco de config — devolvido em `GET /session/status`, a lib não o impõe. **Mantenha bem abaixo de `max-idle`** (um quarto ou menos): é o único sinal que reinicia a janela e o client o throttla nesse intervalo, então perto de `max-idle` o usuário ativo é deslogado. A lib avisa no startup se `>= max-idle / 2`. |
-| `status-poll-interval` | `Duration` | `30s` | Intervalo sugerido para o frontend consultar `GET /session/status`. Só eco de config. Não conta como atividade. |
-| `warning-before` | `Duration` | `60s` | Quanto tempo antes da expiração (idle ou absoluta) avisar o usuário. Ecoado em `/session/status`, de onde o client levanta o card. **Precisa ser menor que `max-idle`** — igual ou maior faz o modal aparecer já no login — e **maior que `status-poll-interval`**, senão a sessão pode ir de fora da janela a expirada entre dois polls, sem o usuário ver o aviso. A lib avisa no startup nos dois casos. |
-| `login-url` | `String` | _(vazio)_ | URL de (re)autenticação, ecoada em `/session/status`. Só eco de config — a lib não redireciona sozinha. |
-| `logout-url` | `String` | _(vazio)_ | URL de logout explícito, ecoada em `/session/status`. Só eco de config. |
-| `redirect-after-expiry-url` | `String` | _(vazio)_ | URL de redirecionamento após expiração (idle ou absoluta), ecoada em `/session/status`. Cai para `login-url` quando vazia — fallback de responsabilidade do client consumidor, não desta lib. |
-| `csrf-enabled` | `boolean` | `false` | Habilita CSRF (token em cookie) no chain padrão. |
-| `cors-enabled` | `boolean` | `false` | Habilita CORS no chain padrão (necessário p/ cookie cross-origin). |
-| `cors-allowed-origins` | `List<String>` | _(vazio)_ | Origens permitidas. Com credenciais, não use `*`. |
-| `cors-allowed-methods` | `List<String>` | `GET,POST,PUT,DELETE,PATCH,OPTIONS` | Métodos permitidos. |
-| `cors-allow-credentials` | `boolean` | `true` | `Access-Control-Allow-Credentials`. |
-| `cleanup-enabled` | `boolean` | `true` | Registra a task agendada de limpeza (e o `@EnableScheduling` interno). |
-| `cleanup-cron` | `String` (cron) | `0 */30 * * * *` | Expressão cron da limpeza. |
-| `permit-all-paths` | `List<String>` | `/login, /auth/**, /public/**` | Caminhos liberados (apenas no chain padrão da lib). |
-| `endpoints-enabled` | `boolean` | `false` | Registra o controller opt-in `GET /status`, `POST /heartbeat`, `POST /renew`, `POST /logout` (base path em `endpoints-base-path`), via `SpringSessionLiteEndpointsAutoConfiguration`. Desligado por padrão — consumidores existentes não são afetados até habilitar explicitamente. |
-| `endpoints-base-path` | `String` | `/session` | Base path dos endpoints opt-in do controller REST (`endpoints-enabled`). |
+|---|---|---|---|
+| `sentret.enabled` | `boolean` | `true` | Desliga a lib inteira. |
+| `sentret.ttl` | `Duration` | `8h` | Tempo de vida absoluto da sessão. |
+| `sentret.max-idle` | `Duration` | `30m` | Janela de inatividade, renovada **só** pelo heartbeat do hub. `0` desliga. |
+| `sentret.cookie-name` | `String` | `SENTRETSID` | Nome do cookie. Use `__Host-SID` para endurecer o cookie. |
+| `sentret.cookie-secure` | `boolean` | `true` | Cookie só em HTTPS. `false` apenas em dev local sobre HTTP. |
+| `sentret.cookie-same-site` | `String` | `Lax` | `Lax`, `Strict` ou `None`. |
+| `sentret.cookie-domain` | `String` | — | Compartilha o cookie entre subdomínios (ex.: `meusite.com`). |
+| `sentret.csrf-enabled` | `boolean` | `false` | CSRF na cadeia padrão (`CookieCsrfTokenRepository`). |
+| `sentret.cors-allowed-origins` | `List<String>` | vazio | Origens liberadas, com credenciais. **O CORS liga sozinho quando a lista não está vazia.** |
+| `sentret.permit-all-paths` | `List<String>` | `/login`, `/auth/**`, `/public/**` | Rotas públicas da cadeia padrão. |
 
----
+## 2. Hub de inatividade (`sentret.hub.*`)
 
-## 2. Exemplo — `application.yml`
+Só valem com `sentret.hub.enabled=true` (ver [06](./06-sessao-centralizada-multissistema.md)).
 
-```yaml
-spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/minha_app
-    username: postgres
-    password: secret
-  jpa:
-    hibernate:
-      ddl-auto: update
+| Propriedade | Tipo | Padrão | Descrição |
+|---|---|---|---|
+| `sentret.hub.enabled` | `boolean` | `false` | Liga os endpoints `status`, `heartbeat` e `renew`. |
+| `sentret.hub.base-path` | `String` | `/session` | Prefixo dos endpoints. O eleva-docs usa `/api/lite/session`. |
+| `sentret.hub.heartbeat-interval` | `Duration` | `60s` | Repassado ao client: intervalo mínimo entre heartbeats. |
+| `sentret.hub.status-poll-interval` | `Duration` | `30s` | Repassado ao client: intervalo do poll de status. |
+| `sentret.hub.warning-before` | `Duration` | `60s` | Repassado ao client: quanto antes da expiração mostrar o aviso. |
+| `sentret.hub.login-url` | `String` | — | Repassado ao client: para onde mandar o usuário quando a sessão acaba. |
 
-spring-session-lite:
-  cookie-name: MINHA_SESSAO
-  ttl: 12h
-  cookie-secure: true
-  cookie-same-site: Lax
-  ip-hash-salt: ${SESSION_IP_SALT}
-  trust-forwarded-for: true
-  trusted-proxy-count: 1
-  sliding-expiration: true
-  cleanup-cron: "0 0 * * * *"
-  permit-all-paths:
-    - /login
-    - /auth/**
-    - /health
-    - /swagger-ui/**
-```
+## 3. Avisos no startup
 
----
+A lib loga `WARN` (sem impedir o startup) quando:
 
-## 3. Recomendações por ambiente
+- `cookie-same-site=None` com CSRF desligado;
+- `hub.heartbeat-interval` ≥ metade de `max-idle` (usuário ativo pode ser deslogado);
+- `hub.status-poll-interval` ≥ `hub.warning-before` (o aviso pode nunca aparecer);
+- `hub.warning-before` ≥ `max-idle` (o aviso aparece logo no login).
 
-### Desenvolvimento (HTTP local)
+## 4. Exemplos
+
+**Produção, mesma origem:**
+
 ```properties
-spring-session-lite.cookie-secure=false
-spring-session-lite.trust-forwarded-for=false
-spring.jpa.hibernate.ddl-auto=update
+sentret.ttl=4h
 ```
-> `cookie-secure=false` é necessário em `http://localhost`, senão o navegador descarta o cookie.
 
-### Produção (HTTPS, atrás de nginx/load balancer)
-```properties
-spring-session-lite.cookie-secure=true
-spring-session-lite.cookie-same-site=Lax
-spring-session-lite.trust-forwarded-for=true
-spring-session-lite.trusted-proxy-count=1
-spring-session-lite.ip-hash-salt=${SESSION_IP_SALT}
-spring.jpa.hibernate.ddl-auto=validate
-```
-> - **Sempre** defina `ip-hash-salt` forte via variável de ambiente.
-> - `trusted-proxy-count` deve refletir quantos proxies confiáveis acrescentam ao `X-Forwarded-For`.
-> - Com `ddl-auto=validate`, crie a tabela com o DDL em
->   [`src/main/resources/db/spring-session-lite-schema.sql`](../src/main/resources/db/spring-session-lite-schema.sql).
-> - `cookie-same-site=None` exige `csrf-enabled=true` (aviso no startup caso contrário).
+**Produção, front em outro domínio:**
 
----
+```properties
+sentret.ttl=4h
+sentret.cors-allowed-origins=https://app.meusite.com
+```
 
-## 4. Desligar a biblioteca
+**Desenvolvimento local (HTTP):**
+
 ```properties
-spring-session-lite.enabled=false
+sentret.cookie-secure=false
+sentret.cors-allowed-origins=http://localhost:3000
 ```
-Nenhum bean é registrado (filtro, chain, agendador). Para desligar **apenas** a limpeza:
+
+**Hub de inatividade (eleva-docs):**
+
 ```properties
-spring-session-lite.cleanup-enabled=false
+sentret.cookie-name=DOC_M4A_SESSIONID
+sentret.cookie-same-site=None
+sentret.max-idle=1h
+sentret.hub.enabled=true
+sentret.hub.base-path=/api/lite/session
+sentret.hub.warning-before=300s
+sentret.hub.login-url=https://login.exemplo.com
 ```
+
+## 5. Propriedades removidas na 1.0.0
+
+| Antes (`spring-session-lite.*`) | Agora |
+|---|---|
+| `endpoints-enabled`, `endpoints-base-path` | `hub.enabled`, `hub.base-path` |
+| `heartbeat-interval`, `status-poll-interval`, `warning-before`, `login-url` | `hub.heartbeat-interval`, `hub.status-poll-interval`, `hub.warning-before`, `hub.login-url` |
+| `ip-hash-salt`, `trust-forwarded-for`, `trusted-proxy-count` | removidas (sem vínculo com IP) |
+| `cookie-prefix` | removida: use `cookie-name=__Host-SID` |
+| `cookie-path` | removida: sempre `/` |
+| `session-id-length` | removida: ID fixo de 20 caracteres |
+| `update-last-accessed`, `sliding-expiration`, `last-accessed-throttle` | removidas |
+| `cors-enabled`, `cors-allowed-methods`, `cors-allow-credentials` | removidas: CORS liga sozinho com `cors-allowed-origins` |
+| `cleanup-enabled`, `cleanup-cron` | removidas: limpeza acontece no login |
+| `logout-url`, `redirect-after-expiry-url` | removidas: use `hub.login-url` |
+
+Guia completo em [`../MIGRATION.md`](../MIGRATION.md).
