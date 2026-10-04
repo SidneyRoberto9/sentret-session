@@ -8,6 +8,7 @@ import io.github.sidneyroberto9.sentret.service.SentretService;
 import io.github.sidneyroberto9.sentret.service.SentretUserService;
 import io.github.sidneyroberto9.sentret.store.JdbcSentretSessionStore;
 import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
+import jakarta.servlet.DispatcherType;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
@@ -106,6 +107,9 @@ public class SentretAutoConfiguration {
                 .httpBasic(AbstractHttpConfigurer::disable)
                 .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .authorizeHttpRequests(auth -> auth
+                        // The error page renders the status of a request that was already
+                        // authorized (or rejected) on its first dispatch.
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(permitAll.toArray(String[]::new)).permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(sentretAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);

@@ -7,7 +7,10 @@ import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
+import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
@@ -18,6 +21,7 @@ public class SentretAuthenticationFilter extends OncePerRequestFilter {
 
     private final SentretService sessionService;
     private final SentretCookieManager cookieManager;
+    private final SecurityContextRepository contextRepository = new RequestAttributeSecurityContextRepository();
 
     public SentretAuthenticationFilter(SentretService sessionService, SentretCookieManager cookieManager) {
         this.sessionService = sessionService;
@@ -50,8 +54,13 @@ public class SentretAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        UsernamePasswordAuthenticationToken auth = new UsernamePasswordAuthenticationToken(user.get(), null, List.of());
-        SecurityContextHolder.getContext().setAuthentication(auth);
+        SecurityContext context = SecurityContextHolder.createEmptyContext();
+        context.setAuthentication(new UsernamePasswordAuthenticationToken(user.get(), null, List.of()));
+        SecurityContextHolder.setContext(context);
+        // Saved on the request so the ERROR and ASYNC dispatches of this same request stay
+        // authenticated: a stateless chain starts each dispatch from an empty context otherwise,
+        // and every error or async response would turn into a 401.
+        contextRepository.saveContext(context, request, response);
         chain.doFilter(request, response);
     }
 }
