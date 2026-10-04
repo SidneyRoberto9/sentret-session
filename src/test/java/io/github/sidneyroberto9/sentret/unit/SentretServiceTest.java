@@ -311,6 +311,27 @@ class SentretServiceTest {
         assertThat(event.getValue().sessionId()).isEqualTo(SID);
     }
 
+    /** Same guard as validate: on a case-folding collation a look-alike id must not log someone out. */
+    @Test
+    void logoutIgnoresARowWhoseIdDiffersOnlyInCase() {
+        Instant now = Instant.now();
+        String sameLettersOtherCase = SID.toLowerCase();
+        SentretSession stored = new SentretSession(SID, "user-1", "user@test.com", now, now.plus(Duration.ofHours(1)), now);
+        when(store.findBySessionId(sameLettersOtherCase)).thenReturn(Optional.of(stored));
+
+        service.logout(sameLettersOtherCase);
+
+        verify(store, never()).deleteBySessionId(any());
+        verifyNoInteractions(eventPublisher);
+    }
+
+    @Test
+    void logoutOfAMalformedIdNeverReachesTheStore() {
+        service.logout("x".repeat(100));
+
+        verifyNoInteractions(store);
+    }
+
     @Test
     void logoutOfUnknownSessionPublishesNothing() {
         when(store.findBySessionId(UNKNOWN)).thenReturn(Optional.empty());

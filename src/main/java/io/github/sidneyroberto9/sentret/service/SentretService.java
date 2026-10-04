@@ -55,14 +55,9 @@ public class SentretService {
      * The id must match exactly, even on databases whose default collation ignores case.
      */
     public Optional<SentretUser> validate(String sessionId) {
-        if (!SESSION_ID_FORMAT.matcher(sessionId).matches()) {
-            return Optional.empty();
-        }
-
         Instant now = Instant.now();
 
-        return store.findBySessionId(sessionId)
-                .filter(session -> session.sessionId().equals(sessionId))
+        return find(sessionId)
                 .filter(session -> !session.expiresAt().isBefore(now))
                 .filter(session -> !isIdleExpired(session.lastAccessedAt(), now))
                 .map(this::toUser);
@@ -99,7 +94,7 @@ public class SentretService {
      * no-op, no-event call when the session is already gone.
      */
     public void logout(String sessionId) {
-        store.findBySessionId(sessionId).ifPresent(session -> {
+        find(sessionId).ifPresent(session -> {
             store.deleteBySessionId(sessionId);
             eventPublisher.publishEvent(new SentretSessionDestroyedEvent(session.userId(), sessionId));
         });
@@ -122,6 +117,18 @@ public class SentretService {
         SentretUser renewed = extend(user);
         cookieManager.write(response, renewed.sessionId());
         return renewed;
+    }
+
+    /**
+     * The row for exactly this id: malformed ids never reach the store, and a row whose id differs
+     * only in case (case-folding collations) is not a match.
+     */
+    private Optional<SentretSession> find(String sessionId) {
+        if (!SESSION_ID_FORMAT.matcher(sessionId).matches()) {
+            return Optional.empty();
+        }
+
+        return store.findBySessionId(sessionId).filter(session -> session.sessionId().equals(sessionId));
     }
 
     private SentretUser extend(SentretUser user) {
