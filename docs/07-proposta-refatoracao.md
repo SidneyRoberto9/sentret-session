@@ -1,9 +1,12 @@
 # Proposta de refatoração — Spring Session Lite → Sentret
 
-> Status: implementado na 1.0.0 — ver docs/superpowers/plans/2026-10-04-sentret-refatoracao.md.
+> **Status: implementado na `sentret-session` 1.0.0** (branch `refactor/sentret`). O estado final,
+> as correções feitas nas revisões e as pendências estão em [Estado final da 1.0.0](#estado-final-da-100).
+> O plano passo a passo está em `docs/superpowers/plans/2026-10-04-sentret-refatoracao.md`.
 
 Análise dos 16 pontos pedidos. Para cada um: **situação atual**, **proposta**, **como fazer** e
-**viabilidade**. Nenhum código foi alterado ainda.
+**viabilidade**. As seções numeradas abaixo são a análise original, feita antes de qualquer código;
+onde o resultado final diverge, valem as tabelas "Decisões finais" e "Estado final da 1.0.0".
 
 ---
 
@@ -44,15 +47,63 @@ Estas decisões valem por cima do texto dos pontos abaixo, onde houver diferenç
 |---|---|---|
 | #1 | Nome **Sentret** | — |
 | #4 | Só **`JdbcTemplate`** | Sem fallback em memória. Colunas de tempo em **BIGINT (epoch millis)** em vez de `TIMESTAMP`: a mesma DDL serve MySQL/PostgreSQL/SQL Server/H2, sem conversão de fuso nem limite de 2038. |
-| #5 | Só o heartbeat conta como atividade, com **um `UPDATE`** e **sem throttle** | Os itens 5.2 (qualquer request = atividade) e 5.3 (throttle de 60s) saíram: requests de fundo da própria app manteriam a sessão viva para sempre, e o throttle poderia atrasar o único sinal de atividade (o bug que já deslogou gente ativa). Ficam 5.1 (principal com os prazos, sem reler a linha) e 5.5. O 5.4 (poll adaptativo) é no client npm, fora deste repositório. |
+| #5 | Só o heartbeat (e o renew explícito) grava atividade, com **um `UPDATE`** e **sem throttle**; `max-idle` só vale com o hub ligado | Os itens 5.2 (qualquer request = atividade) e 5.3 (throttle de 60s) saíram: requests de fundo da própria app manteriam a sessão viva para sempre, e o throttle poderia atrasar o único sinal de atividade (o bug que já deslogou gente ativa). Ficam 5.1 (principal com os prazos, sem reler a linha) e 5.5. Como sem hub ninguém manda heartbeat, `max-idle` só é aplicado com `sentret.hub.enabled=true`; sem hub vale só o `ttl`. O 5.4 (poll adaptativo) é no client npm, fora deste repositório. |
 | #6 | Opção **A** (`HttpStatusEntryPoint`) | — |
 | #7 / #8 | **Apagar a task**; limpar expiradas no login | — |
-| #9 | **Enxugar**: `status`, `heartbeat`, `renew` em `sentret.hub.*`; sem `logout` | — |
-| #10 | BOM do Boot importado + profile `boot4` | As dependências do Boot continuam com escopo normal: o BOM da app consumidora já decide as versões. |
+| #9 | **Enxugar**: `status`, `heartbeat`, `renew` em `sentret.hub.*`; sem `logout` | Com `csrf-enabled=true`, `heartbeat` e `renew` ficam isentos de CSRF (o client npm não manda o token). |
+| #10 | BOM do Boot importado + profile `boot4` | `spring-boot-starter-web` virou dependência opcional (a lib não impõe o Tomcat); as demais seguem com escopo normal, e o BOM da app consumidora decide as versões. Verificado no Boot 3.3.3, 3.5.15 e 4.1.1. |
 | #11 | 10 propriedades no núcleo + 6 em `sentret.hub.*` | `SentretProperties` continua JavaBean com Lombok (padrão do código, menos retrabalho nos testes). O validator mantém as checagens de tempo do hub, que continuam úteis. |
 | #12 | `SecureRandom` + Base64 URL, 15 bytes → 20 caracteres | — |
 
 **Ordem e passos:** ver `docs/superpowers/plans/2026-10-04-sentret-refatoracao.md`.
+
+---
+
+## Estado final da 1.0.0
+
+### O que a biblioteca é agora
+
+| Item | Resultado |
+|---|---|
+| Artefato | `io.github.sidneyroberto9:sentret-session:1.0.0`, pacote `io.github.sidneyroberto9.sentret` |
+| Código principal | 19 classes (antes 25), sem JPA, sem scheduler, sem utilitário próprio de ID |
+| Spring Boot | 3.3+ e 4.x — verificado no 3.3.3 (JDK 21), 3.5.15 e 4.1.1; o jar compilado no Boot 3 passa os testes no Boot 4 |
+| Bancos | Script único (`db/sentret-schema.sql`) testado em PostgreSQL 17, MySQL 8.4 e H2 |
+| Propriedades | 10 no núcleo + 6 em `sentret.hub.*`, nenhuma obrigatória |
+| Hub | `GET status` (público), `POST heartbeat`, `POST renew` |
+| API pública | `SentretService`, `SentretUserService`, `SentretUser`, `SentretSessionStore`, 3 eventos |
+| Testes | 132, incluindo testes com servidor real (Tomcat) e com `SecurityFilterChain` própria |
+
+### Correções feitas nas revisões (depois do plano)
+
+Três revisões independentes da branch encontraram problemas que a implementação do plano não
+cobria. Todos foram corrigidos com um teste que falhava antes:
+
+| Problema | Correção |
+|---|---|
+| `max-idle=30m` padrão derrubava, em 30 min, toda app sem hub (nada renovava a atividade) | `max-idle` só é aplicado com o hub ligado |
+| Erros (400/404/500) e respostas assíncronas viravam 401 sem corpo (bug que vinha da 3.0.0) | O filtro guarda o usuário na request; a cadeia padrão libera o dispatch de ERROR |
+| `csrf-enabled=true` não funcionava com SPA (cookie `XSRF-TOKEN` nunca era enviado) | Handler de CSRF no formato recomendado pelo Spring Security para SPA |
+| Com CSRF, o hub dava 403 no heartbeat/renew do client | `heartbeat` e `renew` isentos; o cookie do token segue domínio, SameSite e Secure do cookie de sessão |
+| Heartbeat anônimo dava 500 em cadeia própria | Responde 401 |
+| Heartbeat/renew de sessão apagada no meio da request respondiam como renovada | Store informa se alterou a linha; responde 401 sem cookie nem evento |
+| `sessionId` (valor do cookie `HttpOnly`) saía no JSON do `SentretUser` | `@JsonIgnore` |
+| MySQL/MariaDB/SQL Server ignoram maiúsculas: ID parecido achava a sessão de outro | `validate` e `logout` exigem ID idêntico; collation binária documentada |
+| Cookie malformado ia ao banco; ID nulo lançava NullPointerException | Recusados antes de consultar |
+| Falha na limpeza de expiradas derrubava o login | Só loga um aviso |
+| `renew` relia a sessão | Usa o usuário já validado pelo filtro |
+| Hub ligado com a lib desligada impedia o startup | Hub só sobe com a lib |
+| App não-web com a lib no classpath não subia; bean `cookieManager` colidia com o da app | Auto-configuração só em app servlet; bean renomeado para `sentretCookieManager` |
+| Configurações de cookie que o navegador recusa passavam em silêncio | Avisos no startup: `SameSite=None` sem `Secure`, prefixos `__Host-`/`__Secure-` |
+| `config.loginUrl` saía como `null` | Omitido quando não configurado |
+
+### Pendências conhecidas (fora desta versão)
+
+- Um novo `login` não revoga a sessão anterior do mesmo navegador (documentado: chamar `logout` antes).
+- `logoutAll` não publica eventos por sessão.
+- A lib não desliga sozinha o registro do filtro como filtro comum do servlet (inofensivo; as apps m4all já desligam).
+- Poll adaptativo (5.4) e tipos atualizados no client npm `@media4all/session-lite`.
+- Migração das apps consumidoras (`MIGRATION.md`), renomeação do repositório no GitHub e publicação no Maven Central.
 
 ---
 
