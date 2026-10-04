@@ -17,8 +17,9 @@ and an optional hub serves the inactivity endpoints used by the `@media4all/sess
 </dependency>
 ```
 
-Requirements: Java 17+, Spring Boot 3.5+ or 4.x, a `DataSource` with `JdbcTemplate`
-(`spring-boot-starter-jdbc` or `spring-boot-starter-data-jpa`).
+Requirements: Java 17+; Spring Boot 3.3+ or 4.x (verified on 3.3.3, 3.5.15 and 4.1.1); a servlet web
+application (`spring-boot-starter-web`, which the library does not pull in); a `DataSource` with
+`JdbcTemplate` (`spring-boot-starter-jdbc` or `spring-boot-starter-data-jpa`).
 
 ## Database
 

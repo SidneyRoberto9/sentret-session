@@ -20,10 +20,11 @@ Autenticação por sessão com cookie, leve, para Spring Boot 3 e 4:
 ## 2. Requisitos
 
 - Java 17+
-- Spring Boot 3.5+ ou 4.x
+- Spring Boot 3.3+ ou 4.x (verificado no 3.3.3, 3.5.15 e 4.1.1)
 - Um `DataSource` com `JdbcTemplate` — `spring-boot-starter-jdbc` ou `spring-boot-starter-data-jpa`
   (que já inclui o JDBC)
-- Spring Security e Spring Web MVC (já vêm como dependências da lib)
+- Aplicação web servlet (`spring-boot-starter-web`; a lib não puxa esse starter, para não impor o Tomcat)
+- Spring Security (já vem como dependência da lib)
 
 ---
 
@@ -112,7 +113,9 @@ public class AuthController {
   apaga as sessões já expiradas.
 - `logout(request, response)` apaga a sessão do cookie, limpa o cookie e publica
   `SentretSessionDestroyedEvent`.
-- `logoutAll(userId)` derruba todas as sessões de um usuário.
+- `logoutAll(userId)` derruba todas as sessões de um usuário (sem publicar eventos por sessão).
+- Um novo `login` **não** revoga a sessão anterior do mesmo navegador: ela fica válida até
+  expirar. Para revogá-la, chame `sentret.logout(request, response)` antes do `login`.
 
 ### 5.2. Usuário atual no controller
 
@@ -168,13 +171,30 @@ public class SecurityConfig {
         http
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers("/auth/login", "/public/**").permitAll()
                         .anyRequest().authenticated())
                 .addFilterBefore(sentretAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
+
+    /** Runs only inside the security chain, not a second time as a plain servlet filter. */
+    @Bean
+    public FilterRegistrationBean<SentretAuthenticationFilter> sentretFilterRegistration(SentretAuthenticationFilter filter) {
+        FilterRegistrationBean<SentretAuthenticationFilter> registration = new FilterRegistrationBean<>(filter);
+        registration.setEnabled(false);
+        return registration;
+    }
 }
 ```
+
+- **`DispatcherType.ERROR` liberado:** sem isso, um 400/404/500 de um usuário anônimo vira 401 na
+  página de erro. (O filtro já guarda o usuário na request, então erros e respostas assíncronas de
+  usuários logados mantêm o status.)
+- **`FilterRegistrationBean` desligado:** opcional. Sem ele o filtro também roda como filtro comum do
+  servlet, o que é inofensivo (ele não processa a mesma request duas vezes).
+- **Com o hub ligado:** libere `GET {hub.base-path}/status`; se usar CSRF, isente
+  `{hub.base-path}/heartbeat` e `{hub.base-path}/renew` (o client npm não manda o header).
 
 > **CSRF e cookie:** autenticação por cookie é sensível a CSRF. Mantenha `SameSite=Lax`/`Strict`
 > (padrão) ou ligue `csrf-enabled`. Evite `SameSite=None` sem CSRF — a lib avisa no startup.
