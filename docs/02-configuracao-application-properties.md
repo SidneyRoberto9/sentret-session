@@ -1,6 +1,6 @@
 # Sentret — Configuração (`application.properties`)
 
-Todas as propriedades usam o prefixo `sentret` e **todas têm padrão**: a lib funciona sem nenhuma
+Todas as propriedades usam o prefixo `sentret` (11 no núcleo, 6 do hub) e **todas têm padrão**: a lib funciona sem nenhuma
 configuração.
 
 ---
@@ -17,8 +17,9 @@ configuração.
 | `sentret.cookie-same-site` | `String` | `Lax` | `Lax`, `Strict` ou `None`. |
 | `sentret.cookie-domain` | `String` | — | Compartilha o cookie entre subdomínios (ex.: `meusite.com`). |
 | `sentret.csrf-enabled` | `boolean` | `false` | CSRF na cadeia padrão, no formato de SPA: o front lê o cookie `XSRF-TOKEN` e devolve o valor no header `X-XSRF-TOKEN`. |
-| `sentret.cors-allowed-origins` | `List<String>` | vazio | Origens liberadas, com credenciais. **O CORS liga sozinho quando a lista não está vazia.** |
-| `sentret.permit-all-paths` | `List<String>` | `/login`, `/auth/**`, `/public/**` | Rotas públicas da cadeia padrão. |
+| `sentret.csrf-ignored-paths` | `List<String>` | vazio | Caminhos isentos de CSRF com `csrf-enabled=true` — tipicamente o logout da app que o client npm chama sem o token. `heartbeat`/`renew` do hub já são isentos. |
+| `sentret.cors-allowed-origins` | `List<String>` | vazio | Origens liberadas, com credenciais; aceita padrões como `https://*.meusite.com`. **O CORS liga sozinho quando a lista não está vazia.** |
+| `sentret.permit-all-paths` | `List<String>` | `/login`, `/auth/**`, `/public/**`, `/actuator/health/**` | Rotas públicas da cadeia padrão (o health fica público para os probes). |
 
 ## 2. Hub de inatividade (`sentret.hub.*`)
 
@@ -51,12 +52,26 @@ A lib loga `WARN` (sem impedir o startup) quando:
 sentret.ttl=4h
 ```
 
-**Produção, front em outro domínio:**
+**Produção, front em outro subdomínio do mesmo site** (`app.meusite.com` → `api.meusite.com`):
 
 ```properties
 sentret.ttl=4h
 sentret.cors-allowed-origins=https://app.meusite.com
 ```
+
+Subdomínios do mesmo domínio são o mesmo *site*, então o `SameSite=Lax` padrão basta.
+
+**Produção, front em outro site** (`app.empresa.com` → `api.outra.com`):
+
+```properties
+sentret.cookie-same-site=None
+sentret.cors-allowed-origins=https://app.empresa.com
+```
+
+`SameSite=None` exige `Secure` (padrão) e deixa o cookie ir em requests de qualquer site, por isso
+a lib avisa no startup sem CSRF. Com `csrf-enabled=true`, o front só lê o cookie `XSRF-TOKEN` se UI e
+API dividirem um domínio (`cookie-domain`); entre sites diferentes, proteja as rotas de escrita de
+outra forma.
 
 **Desenvolvimento local (HTTP):**
 
@@ -65,7 +80,8 @@ sentret.cookie-secure=false
 sentret.cors-allowed-origins=http://localhost:3000
 ```
 
-**Hub de inatividade (eleva-docs):**
+**Hub de inatividade (eleva-docs):** (o eleva-docs usa `SameSite=None` sem `csrf-enabled`, então a
+lib loga o aviso de CSRF no startup — é esperado nessa configuração)
 
 ```properties
 sentret.cookie-name=DOC_M4A_SESSIONID

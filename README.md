@@ -91,8 +91,9 @@ Nothing is required.
 | `cookie-same-site` | `Lax` | |
 | `cookie-domain` | — | Share the cookie across subdomains. |
 | `csrf-enabled` | `false` | CSRF on the default chain, SPA style: read the `XSRF-TOKEN` cookie and send it back in the `X-XSRF-TOKEN` header. |
-| `cors-allowed-origins` | — | CORS (with credentials) is on when not empty. |
-| `permit-all-paths` | `/login`, `/auth/**`, `/public/**` | |
+| `csrf-ignored-paths` | — | Paths exempt from CSRF, e.g. the logout URL the npm client calls without a token. |
+| `cors-allowed-origins` | — | CORS (with credentials) is on when not empty. Patterns such as `https://*.example.com` work. |
+| `permit-all-paths` | `/login`, `/auth/**`, `/public/**`, `/actuator/health/**` | Public paths of the default chain. |
 | `hub.enabled` | `false` | Serve the inactivity hub. |
 | `hub.base-path` | `/session` | |
 | `hub.heartbeat-interval` | `60s` | Echoed to the client. |
