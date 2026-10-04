@@ -21,8 +21,9 @@ UI B ──GET  /status─────►├─► hub (aplicação com sentret.
 UI C ──POST /renew──────►┘
 ```
 
-- Atividade em **qualquer** UI integrada mantém a sessão viva — mas **só o heartbeat** grava
-  `last_accessed_at`. O poll de status e as demais requests nunca contam como atividade.
+- Atividade em **qualquer** UI integrada mantém a sessão viva — mas só o heartbeat (e o renew,
+  quando o usuário pede para continuar) grava `last_accessed_at`. O poll de status e as demais
+  requests nunca contam como atividade.
 - Inatividade além de `max-idle` encerra a sessão para todas as UIs: a validação rejeita a sessão e
   cada UI descobre no próximo status.
 

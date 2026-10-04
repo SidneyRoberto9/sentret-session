@@ -110,7 +110,8 @@ eventos reais do usuário (mouse, teclado, scroll):
 
 `renew(sessionId)` só atua numa sessão **ainda válida**: um `UPDATE` volta `expires_at` para
 `agora + ttl` e `last_accessed_at` para `agora`, e publica `SentretSessionRenewedEvent`.
-`renew(request, response)` também reescreve o cookie. Sessão expirada (por tempo absoluto ou por
+`renew(user, response)` é o usado pelo hub: parte do principal que o filtro já validou (sem reler a
+linha) e também reescreve o cookie. Sessão expirada (por tempo absoluto ou por
 inatividade) **não** é ressuscitada.
 
 ---

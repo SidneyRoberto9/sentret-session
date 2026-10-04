@@ -107,13 +107,14 @@ sentret.cors-allowed-origins=https://app.example.com
 |---|---|---|
 | `GET {base-path}/status` | permit-all | Remaining absolute/idle time + client config. Never counts as activity. |
 | `POST {base-path}/heartbeat` | session | The only activity signal: one `UPDATE`. |
-| `POST {base-path}/renew` | session | Resets both deadlines and rewrites the cookie. |
+| `POST {base-path}/renew` | session | Resets both deadlines (one `UPDATE`, no re-read) and rewrites the cookie. |
 
 ## How it works
 
 - The filter reads the cookie and validates the session with one `SELECT`; the principal carries
   both deadlines, so the hub never reads the row twice.
-- Only the heartbeat writes `last_accessed_at`. Polls and your own API calls never extend a session.
+- Only the heartbeat (and an explicit renew) writes `last_accessed_at`. Polls and your own API calls
+  never extend a session.
 - Expired rows are purged on login (indexed `DELETE`); there is no scheduler.
 - Unauthenticated requests get `401` with no body.
 
