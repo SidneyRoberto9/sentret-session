@@ -1,5 +1,7 @@
 # Proposta de refatoração — Spring Session Lite → Sentret
 
+> Status: implementado na 1.0.0 — ver docs/superpowers/plans/2026-10-04-sentret-refatoracao.md.
+
 Análise dos 16 pontos pedidos. Para cada um: **situação atual**, **proposta**, **como fazer** e
 **viabilidade**. Nenhum código foi alterado ainda.
 
