@@ -265,26 +265,20 @@ class SentretServiceTest {
         verify(store, never()).updateExpiresAt(any(), any(), any());
     }
 
+    /** The hub renew: the filter already validated the session, so no second read. */
     @Test
-    void renewWithRequestRewritesTheCookie() {
+    void renewOfThePrincipalRewritesTheCookieWithoutReadingTheStore() {
         properties.setTtl(Duration.ofMinutes(30));
         Instant now = Instant.now();
-        stored(now.plus(Duration.ofMinutes(2)), now);
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setCookies(new Cookie(cookieManager.cookieName(), SID));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        assertThat(service.renew(request, response)).isPresent();
+        SentretUser renewed = service.renew(user(now.plus(Duration.ofMinutes(2)), now), response);
+
+        verify(store).updateExpiresAt(eq(SID), eq(renewed.expiresAt()), eq(renewed.lastAccessedAt()));
+        verify(store, never()).findBySessionId(any());
+        assertThat(renewed.expiresAt()).isEqualTo(renewed.lastAccessedAt().plus(Duration.ofMinutes(30)));
         assertThat(response.getHeader("Set-Cookie")).contains("Max-Age=1800");
-    }
-
-    @Test
-    void renewWithRequestWithoutCookieDoesNothing() {
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        assertThat(service.renew(new MockHttpServletRequest(), response)).isEmpty();
-        verifyNoInteractions(store);
-        assertThat(response.getHeader("Set-Cookie")).isNull();
+        verify(eventPublisher).publishEvent(any(SentretSessionRenewedEvent.class));
     }
 
     // --- logout ---

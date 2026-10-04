@@ -3,7 +3,6 @@ package io.github.sidneyroberto9.sentret.hub;
 import io.github.sidneyroberto9.sentret.hub.dto.response.SessionStatusResponse;
 import io.github.sidneyroberto9.sentret.security.SentretUser;
 import io.github.sidneyroberto9.sentret.service.SentretService;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -14,7 +13,6 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.Optional;
 
 /**
  * Inactivity hub endpoints consumed by the @media4all/session-lite client. HTTP only: the rules
@@ -46,13 +44,12 @@ public class SentretHubController {
     }
 
     @PostMapping("/renew")
-    public ResponseEntity<SessionStatusResponse> renew(HttpServletRequest request, HttpServletResponse response) {
-        Optional<SentretUser> renewed = sessionService.renew(request, response);
-
-        if (renewed.isEmpty()) {
+    public ResponseEntity<SessionStatusResponse> renew(@AuthenticationPrincipal SentretUser user, HttpServletResponse response) {
+        if (user == null) {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        return ResponseEntity.status(HttpStatus.OK).body(statusService.status(renewed.get()));
+        SentretUser renewed = sessionService.renew(user, response);
+        return ResponseEntity.status(HttpStatus.OK).body(statusService.status(renewed));
     }
 }

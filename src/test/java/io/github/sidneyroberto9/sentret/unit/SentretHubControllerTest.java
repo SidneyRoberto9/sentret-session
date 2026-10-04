@@ -6,7 +6,6 @@ import io.github.sidneyroberto9.sentret.hub.dto.response.SessionConfigResponse;
 import io.github.sidneyroberto9.sentret.hub.dto.response.SessionStatusResponse;
 import io.github.sidneyroberto9.sentret.security.SentretUser;
 import io.github.sidneyroberto9.sentret.service.SentretService;
-import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -14,7 +13,6 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.time.Instant;
-import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -77,26 +75,24 @@ class SentretHubControllerTest {
     }
 
     @Test
-    void renewReturns401WithoutBodyWhenTheSessionIsGone() {
-        HttpServletRequest request = mock(HttpServletRequest.class);
-        HttpServletResponse httpResponse = mock(HttpServletResponse.class);
-        when(sessionService.renew(request, httpResponse)).thenReturn(Optional.empty());
-
-        ResponseEntity<SessionStatusResponse> response = controller.renew(request, httpResponse);
+    void renewWithoutPrincipalReturns401WithoutTouching() {
+        ResponseEntity<SessionStatusResponse> response = controller.renew(null, mock(HttpServletResponse.class));
 
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
         assertThat(response.getBody()).isNull();
+        verifyNoInteractions(sessionService);
     }
 
     @Test
     void renewReturnsTheRenewedStatus() {
-        HttpServletRequest request = mock(HttpServletRequest.class);
         HttpServletResponse httpResponse = mock(HttpServletResponse.class);
-        when(sessionService.renew(request, httpResponse)).thenReturn(Optional.of(USER));
-        when(statusService.status(USER)).thenReturn(authenticated());
+        SentretUser renewed = new SentretUser("user-1", "user@test.com", "sid", Instant.parse("2030-01-01T08:00:00Z"), Instant.parse("2030-01-01T00:00:00Z"));
+        when(sessionService.renew(USER, httpResponse)).thenReturn(renewed);
+        when(statusService.status(renewed)).thenReturn(authenticated());
 
-        ResponseEntity<SessionStatusResponse> response = controller.renew(request, httpResponse);
+        ResponseEntity<SessionStatusResponse> response = controller.renew(USER, httpResponse);
 
+        verify(sessionService).renew(USER, httpResponse);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(authenticated());
     }

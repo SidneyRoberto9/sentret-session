@@ -109,28 +109,27 @@ public class SentretService {
 
     /** Resets both deadlines of a still-valid session. Never resurrects an expired one. */
     public Optional<SentretUser> renew(String sessionId) {
-        Instant now = Instant.now();
-
-        return validate(sessionId).map(user -> {
-            Instant expiresAt = now.plus(properties.getTtl());
-            store.updateExpiresAt(sessionId, expiresAt, now);
-            eventPublisher.publishEvent(new SentretSessionRenewedEvent(user.userId(), sessionId, now));
-
-            return new SentretUser(user.userId(), user.email(), sessionId, expiresAt, now);
-        });
+        return validate(sessionId).map(this::extend);
     }
 
-    public Optional<SentretUser> renew(HttpServletRequest request, HttpServletResponse response) {
-        String sessionId = cookieManager.read(request);
-
-        if (sessionId == null) {
-            return Optional.empty();
-        }
-
-        Optional<SentretUser> renewed = renew(sessionId);
-        renewed.ifPresent(user -> cookieManager.write(response, sessionId));
-
+    /**
+     * Renews the session of a principal the filter already validated (the hub renew), without
+     * reading the row again, and rewrites the cookie.
+     */
+    public SentretUser renew(SentretUser user, HttpServletResponse response) {
+        SentretUser renewed = extend(user);
+        cookieManager.write(response, renewed.sessionId());
         return renewed;
+    }
+
+    private SentretUser extend(SentretUser user) {
+        Instant now = Instant.now();
+        Instant expiresAt = now.plus(properties.getTtl());
+
+        store.updateExpiresAt(user.sessionId(), expiresAt, now);
+        eventPublisher.publishEvent(new SentretSessionRenewedEvent(user.userId(), user.sessionId(), now));
+
+        return new SentretUser(user.userId(), user.email(), user.sessionId(), expiresAt, now);
     }
 
     private boolean isIdleExpired(Instant lastAccessedAt, Instant now) {
