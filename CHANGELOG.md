@@ -30,6 +30,10 @@ Sucede o `spring-session-lite` 3.0.0. Guia completo em `MIGRATION.md`.
 - Falha na limpeza de expiradas não derruba o login (só loga um aviso).
 - Hub não impede o startup quando `sentret.enabled=false`.
 - `renew` do hub parte do principal já validado, sem reler a sessão.
+- `csrf-enabled=true` funciona com SPA: o cookie `XSRF-TOKEN` sai em toda resposta e o valor puro em `X-XSRF-TOKEN` é aceito.
+- A auto-configuração só sobe em aplicação web servlet, e o bean do cookie se chama `sentretCookieManager` (sem colidir com um `cookieManager` da aplicação).
+- `logout(sessionId)` usa a mesma busca exata do `validate`.
+- Aviso no startup para `cookie-same-site=None` com `cookie-secure=false`.
 
 ### Removido
 - Vínculo com IP (`ip-hash-salt`, `trust-forwarded-for`, `trusted-proxy-count`).
