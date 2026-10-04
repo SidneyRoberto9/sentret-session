@@ -6,6 +6,31 @@ livremente, o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/); o ver
 
 ---
 
+## [1.0.0] - Sentret
+
+Primeira versão com o nome **Sentret** (artefato novo: `io.github.sidneyroberto9:sentret-session`).
+Sucede o `spring-session-lite` 3.0.0. Guia completo em `MIGRATION.md`.
+
+### Alterado
+- Renomeada para Sentret: pacote `io.github.sidneyroberto9.sentret`, classes `Sentret*`, propriedades `sentret.*`, cookie `SENTRETSID`.
+- Persistência com `JdbcTemplate` (SQL puro, tabela `sentret_sessions`, tempos em epoch millis). Sem JPA/Hibernate.
+- Heartbeat grava com um único `UPDATE`; o principal carrega os prazos e o status não relê a sessão.
+- Session ID com `SecureRandom` + Base64 URL (20 caracteres).
+- 401 pelo `HttpStatusEntryPoint`, sem corpo.
+- Propriedades do hub agrupadas em `sentret.hub.*`; CORS inferido de `cors-allowed-origins`; `max-idle` padrão `30m`.
+- Hub com Controller só HTTP, `SentretHubStatusService` e DTOs em `hub.dto.response`.
+- Compatível com Spring Boot 3.5 e 4.x (profile `boot4`).
+
+### Removido
+- Vínculo com IP (`ip-hash-salt`, `trust-forwarded-for`, `trusted-proxy-count`).
+- Roles na sessão.
+- `NanoId`, task agendada de limpeza e `@EnableScheduling`.
+- Endpoint `POST /session/logout` e os campos `ttlMs`, `maxIdleMs`, `logoutUrl`, `redirectAfterExpiryUrl` do status.
+- `@SpringSessionLiteCurrentSession` (use `@AuthenticationPrincipal`).
+- Propriedades `cookie-prefix`, `cookie-path`, `session-id-length`, `update-last-accessed`, `sliding-expiration`, `last-accessed-throttle`, `cors-enabled`, `cors-allowed-methods`, `cors-allow-credentials`, `cleanup-enabled`, `cleanup-cron`.
+
+---
+
 ## [3.0.0] - 2026-07-29
 
 Bump **MAJOR**. **Toda a pilha SSE foi removida.** O push por servidor era, na prática, a única coisa
