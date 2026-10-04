@@ -34,6 +34,13 @@ Sucede o `spring-session-lite` 3.0.0. Guia completo em `MIGRATION.md`.
 - A auto-configuração só sobe em aplicação web servlet, e o bean do cookie se chama `sentretCookieManager` (sem colidir com um `cookieManager` da aplicação).
 - `logout(sessionId)` usa a mesma busca exata do `validate`.
 - Aviso no startup para `cookie-same-site=None` com `cookie-secure=false`.
+- Erros (400/404/500) e respostas assíncronas de usuários logados não viram mais 401: o filtro guarda o contexto de segurança na request, e a cadeia padrão libera o dispatch de ERROR.
+- Com `csrf-enabled=true`, `heartbeat` e `renew` do hub ficam isentos de CSRF, e o cookie `XSRF-TOKEN` segue o domínio, o SameSite e o Secure do cookie de sessão.
+- `heartbeat` e `renew` de uma sessão apagada no meio da request respondem 401 (sem cookie novo nem evento).
+- ID de sessão nulo é tratado como sessão desconhecida.
+- Aviso no startup quando um cookie `__Host-`/`__Secure-` não cumpre as regras do prefixo.
+- `config.loginUrl` não definido é omitido do status.
+- `spring-boot-starter-web` passou a ser dependência opcional (a lib não impõe o Tomcat).
 
 ### Removido
 - Vínculo com IP (`ip-hash-salt`, `trust-forwarded-for`, `trusted-proxy-count`).
