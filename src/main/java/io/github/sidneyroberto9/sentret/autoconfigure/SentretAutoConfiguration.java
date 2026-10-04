@@ -34,7 +34,17 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.ArrayList;
 import java.util.List;
 
-@AutoConfiguration
+/**
+ * Registers the library's beans and, unless the application declares its own, the default
+ * SecurityFilterChain. Ordered ahead of Boot's own default chains (named, not referenced as classes,
+ * so the same jar runs on Boot 3 and Boot 4; names absent from the classpath are ignored).
+ */
+@AutoConfiguration(beforeName = {
+        "org.springframework.boot.autoconfigure.security.servlet.SecurityAutoConfiguration",
+        "org.springframework.boot.actuate.autoconfigure.security.servlet.ManagementWebSecurityAutoConfiguration",
+        "org.springframework.boot.security.autoconfigure.web.servlet.ServletWebSecurityAutoConfiguration",
+        "org.springframework.boot.security.autoconfigure.actuate.web.servlet.ManagementWebSecurityAutoConfiguration"
+})
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnClass({JdbcTemplate.class, SecurityFilterChain.class})
 @ConditionalOnProperty(prefix = "sentret", name = "enabled", matchIfMissing = true)
