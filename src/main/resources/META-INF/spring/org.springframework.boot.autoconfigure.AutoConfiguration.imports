@@ -1,2 +1,2 @@
 io.github.sidneyroberto9.sentret.autoconfigure.SentretAutoConfiguration
-io.github.sidneyroberto9.sentret.autoconfigure.SentretEndpointsAutoConfiguration
+io.github.sidneyroberto9.sentret.autoconfigure.SentretHubAutoConfiguration

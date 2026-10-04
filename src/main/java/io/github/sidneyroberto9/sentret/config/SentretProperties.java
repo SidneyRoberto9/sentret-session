@@ -76,9 +76,5 @@ public class SentretProperties {
 
         /** Where the client sends the user when the session ends. Echoed to the client. */
         private String loginUrl;
-
-        private String logoutUrl;
-
-        private String redirectAfterExpiryUrl;
     }
 }

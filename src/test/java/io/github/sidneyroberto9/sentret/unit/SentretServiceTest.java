@@ -7,7 +7,6 @@ import io.github.sidneyroberto9.sentret.event.SentretSessionRenewedEvent;
 import io.github.sidneyroberto9.sentret.security.SentretUser;
 import io.github.sidneyroberto9.sentret.service.SentretCookieManager;
 import io.github.sidneyroberto9.sentret.service.SentretService;
-import io.github.sidneyroberto9.sentret.service.SentretSessionRemaining;
 import io.github.sidneyroberto9.sentret.store.SentretSession;
 import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
 import jakarta.servlet.http.Cookie;
@@ -208,40 +207,8 @@ class SentretServiceTest {
         verifyNoInteractions(store);
     }
 
-    // --- remaining ---
 
-    @Test
-    void remainingComesFromThePrincipalWithoutStoreAccess() {
-        Instant now = Instant.now();
 
-        SentretSessionRemaining remaining = service.remaining(
-                user(now.plus(Duration.ofMinutes(30)), now.minus(Duration.ofMinutes(4))));
-
-        assertThat(remaining.absoluteRemainingMs()).isCloseTo(Duration.ofMinutes(30).toMillis(), FIVE_SECONDS);
-        assertThat(remaining.idleRemainingMs()).isCloseTo(Duration.ofMinutes(6).toMillis(), FIVE_SECONDS);
-        verifyNoInteractions(store);
-    }
-
-    @Test
-    void remainingHasNoIdleDeadlineWhenIdleDisabled() {
-        properties.setMaxIdle(Duration.ZERO);
-        Instant now = Instant.now();
-
-        SentretSessionRemaining remaining = service.remaining(user(now.plus(Duration.ofMinutes(30)), now));
-
-        assertThat(remaining.idleRemainingMs()).isNull();
-    }
-
-    @Test
-    void remainingClampsToZeroPastBothDeadlines() {
-        Instant now = Instant.now();
-
-        SentretSessionRemaining remaining = service.remaining(
-                user(now.minus(Duration.ofMinutes(1)), now.minus(Duration.ofMinutes(20))));
-
-        assertThat(remaining.absoluteRemainingMs()).isZero();
-        assertThat(remaining.idleRemainingMs()).isZero();
-    }
 
     // --- renew ---
 

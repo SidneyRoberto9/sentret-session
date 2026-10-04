@@ -19,7 +19,6 @@ import java.time.temporal.ChronoUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.within;
-import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.greaterThan;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -29,13 +28,20 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+/**
+ * The hub as eleva-docs runs it: custom base path, idle enforcement on, login URL echoed. The
+ * three endpoints the @media4all/session-lite client calls must keep their contract.
+ */
 @SpringBootTest(classes = SampleApplication.class)
 @TestPropertySource(properties = {
         "sentret.hub.enabled=true",
+        "sentret.hub.base-path=/api/lite/session",
+        "sentret.hub.login-url=https://login.example.com",
         "sentret.max-idle=10m"
 })
-class SentretSessionControllerIntegrationTest {
+class SentretHubIntegrationTest {
 
+    private static final String HUB = "/api/lite/session";
     private static final long TTL_MS = 8 * 60 * 60 * 1000L;
     private static final long MAX_IDLE_MS = 10 * 60 * 1000L;
 
@@ -53,10 +59,10 @@ class SentretSessionControllerIntegrationTest {
         jdbc.update("DELETE FROM sentret_sessions");
     }
 
-    private Cookie login(String userId, String email) throws Exception {
+    private Cookie login(String userId) throws Exception {
         MvcResult result = mockMvc.perform(post("/login")
                         .contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"userId\":\"" + userId + "\",\"email\":\"" + email + "\"}"))
+                        .content("{\"userId\":\"" + userId + "\",\"email\":\"" + userId + "@test.com\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -75,37 +81,47 @@ class SentretSessionControllerIntegrationTest {
     }
 
     @Test
-    void statusIsPermitAllAndAnonymousReturnsConfigEcho() throws Exception {
-        mockMvc.perform(get("/session/status"))
+    void statusIsPermitAllAndAnonymousCarriesOnlyTheConfig() throws Exception {
+        mockMvc.perform(get(HUB + "/status"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.authenticated").value(false))
                 .andExpect(jsonPath("$.userId").doesNotExist())
                 .andExpect(jsonPath("$.roles").doesNotExist())
-                .andExpect(jsonPath("$.config.ttlMs").value(TTL_MS))
-                .andExpect(jsonPath("$.config.maxIdleMs").value(MAX_IDLE_MS))
+                .andExpect(jsonPath("$.absoluteRemainingMs").doesNotExist())
                 .andExpect(jsonPath("$.config.heartbeatIntervalMs").value(60_000))
                 .andExpect(jsonPath("$.config.statusPollIntervalMs").value(30_000))
-                .andExpect(jsonPath("$.config.warningBeforeMs").value(60_000));
+                .andExpect(jsonPath("$.config.warningBeforeMs").value(60_000))
+                .andExpect(jsonPath("$.config.loginUrl").value("https://login.example.com"))
+                .andExpect(jsonPath("$.config.ttlMs").doesNotExist())
+                .andExpect(jsonPath("$.config.maxIdleMs").doesNotExist())
+                .andExpect(jsonPath("$.config.logoutUrl").doesNotExist())
+                .andExpect(jsonPath("$.config.redirectAfterExpiryUrl").doesNotExist());
+    }
+
+    @Test
+    void defaultBasePathIsNotExposed() throws Exception {
+        mockMvc.perform(get("/session/status")).andExpect(status().isUnauthorized());
     }
 
     @Test
     void statusWithValidCookieReturnsUserAndRemainingTimes() throws Exception {
-        Cookie cookie = login("user1", "user1@test.com");
+        Cookie cookie = login("user1");
 
-        mockMvc.perform(get("/session/status").cookie(cookie))
+        mockMvc.perform(get(HUB + "/status").cookie(cookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.authenticated").value(true))
                 .andExpect(jsonPath("$.userId").value("user1"))
+                .andExpect(jsonPath("$.email").value("user1@test.com"))
                 .andExpect(jsonPath("$.absoluteRemainingMs").value(greaterThan((int) (TTL_MS - 10_000))))
                 .andExpect(jsonPath("$.idleRemainingMs").value(greaterThan((int) (MAX_IDLE_MS - 10_000))));
     }
 
     @Test
     void heartbeatResetsTheIdleClock() throws Exception {
-        Cookie cookie = login("user2", "user2@test.com");
+        Cookie cookie = login("user2");
         setColumn("last_accessed_at", cookie.getValue(), Instant.now().minus(6, ChronoUnit.MINUTES));
 
-        mockMvc.perform(post("/session/heartbeat").cookie(cookie))
+        mockMvc.perform(post(HUB + "/heartbeat").cookie(cookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.idleRemainingMs").value(greaterThan((int) (MAX_IDLE_MS - 10_000))));
 
@@ -114,17 +130,17 @@ class SentretSessionControllerIntegrationTest {
 
     @Test
     void heartbeatWithoutCookieReturns401() throws Exception {
-        mockMvc.perform(post("/session/heartbeat")).andExpect(status().isUnauthorized());
+        mockMvc.perform(post(HUB + "/heartbeat")).andExpect(status().isUnauthorized());
     }
 
     @Test
     void statusPollDoesNotAdvanceLastAccessedAt() throws Exception {
-        Cookie cookie = login("user-poll", "poll@test.com");
+        Cookie cookie = login("user-poll");
         Instant stale = Instant.now().minus(6, ChronoUnit.MINUTES);
         setColumn("last_accessed_at", cookie.getValue(), stale);
 
         for (int i = 0; i < 5; i++) {
-            mockMvc.perform(get("/session/status").cookie(cookie))
+            mockMvc.perform(get(HUB + "/status").cookie(cookie))
                     .andExpect(status().isOk())
                     .andExpect(jsonPath("$.authenticated").value(true));
         }
@@ -133,25 +149,25 @@ class SentretSessionControllerIntegrationTest {
     }
 
     @Test
-    void statusPollDoesNotRescueIdleExpiredSession() throws Exception {
-        Cookie cookie = login("user-idle", "idle@test.com");
+    void statusPollDoesNotRescueAnIdleExpiredSession() throws Exception {
+        Cookie cookie = login("user-idle");
         setColumn("last_accessed_at", cookie.getValue(), Instant.now().minus(11, ChronoUnit.MINUTES));
 
-        mockMvc.perform(get("/session/status").cookie(cookie))
+        mockMvc.perform(get(HUB + "/status").cookie(cookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.authenticated").value(false));
 
-        mockMvc.perform(post("/session/heartbeat").cookie(cookie))
+        mockMvc.perform(post(HUB + "/heartbeat").cookie(cookie))
                 .andExpect(status().isUnauthorized());
     }
 
     @Test
-    void renewResetsAbsoluteExpiry() throws Exception {
-        Cookie cookie = login("user3", "user3@test.com");
+    void renewResetsAbsoluteExpiryAndRewritesTheCookie() throws Exception {
+        Cookie cookie = login("user3");
         Instant nearExpiry = Instant.now().plusSeconds(60);
         setColumn("expires_at", cookie.getValue(), nearExpiry);
 
-        mockMvc.perform(post("/session/renew").cookie(cookie))
+        mockMvc.perform(post(HUB + "/renew").cookie(cookie))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.absoluteRemainingMs").value(greaterThan((int) (TTL_MS - 10_000))))
                 .andExpect(header().exists("Set-Cookie"));
@@ -160,21 +176,20 @@ class SentretSessionControllerIntegrationTest {
     }
 
     @Test
-    void renewWithoutValidCookieReturns401WithoutBody() throws Exception {
-        mockMvc.perform(post("/session/renew"))
+    void renewWithoutCookieReturns401WithoutBody() throws Exception {
+        mockMvc.perform(post(HUB + "/renew"))
                 .andExpect(status().isUnauthorized())
                 .andExpect(content().string(""));
     }
 
+    /** The client never called it: every app logs out through its own endpoint. */
     @Test
-    void logoutClearsSessionThenNextRequestReturns401() throws Exception {
-        Cookie cookie = login("user4", "user4@test.com");
+    void logoutEndpointNoLongerExists() throws Exception {
+        Cookie cookie = login("user4");
 
-        mockMvc.perform(post("/session/logout").cookie(cookie))
-                .andExpect(status().isNoContent())
-                .andExpect(header().string("Set-Cookie", containsString("Max-Age=0")));
+        // 404 (no handler) or 405 (static-resource fallback): either way, nothing answers it.
+        mockMvc.perform(post(HUB + "/logout").cookie(cookie)).andExpect(status().is4xxClientError());
 
-        mockMvc.perform(post("/session/heartbeat").cookie(cookie))
-                .andExpect(status().isUnauthorized());
+        mockMvc.perform(get(HUB + "/status").cookie(cookie)).andExpect(jsonPath("$.authenticated").value(true));
     }
 }

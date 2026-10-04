@@ -13,7 +13,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.security.SecureRandom;
-import java.time.Duration;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Optional;
@@ -124,25 +123,8 @@ public class SentretService {
         return renewed;
     }
 
-    /** Remaining time computed from the principal the filter already loaded: no store access. */
-    public SentretSessionRemaining remaining(SentretUser user) {
-        Instant now = Instant.now();
-        long absoluteRemainingMs = remainingMs(now, user.expiresAt());
-
-        if (!properties.isIdleEnabled()) {
-            return new SentretSessionRemaining(absoluteRemainingMs, null);
-        }
-
-        long idleRemainingMs = remainingMs(now, user.lastAccessedAt().plus(properties.getMaxIdle()));
-        return new SentretSessionRemaining(absoluteRemainingMs, idleRemainingMs);
-    }
-
     private boolean isIdleExpired(Instant lastAccessedAt, Instant now) {
         return properties.isIdleEnabled() && lastAccessedAt.plus(properties.getMaxIdle()).isBefore(now);
-    }
-
-    private static long remainingMs(Instant now, Instant deadline) {
-        return Math.max(0, Duration.between(now, deadline).toMillis());
     }
 
     private static String newSessionId() {
