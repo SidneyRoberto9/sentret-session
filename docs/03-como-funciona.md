@@ -78,7 +78,9 @@ Tempos em epoch millis (`BIGINT`). No Java a linha é o record `SentretSession`.
 
 Para cada request com cookie:
 
-1. Um `SELECT` pelo `session_id`.
+1. Cookie fora do formato (20 caracteres Base64 URL) é recusado sem consultar o banco; senão, um
+   `SELECT` pelo `session_id`, e o ID encontrado precisa ser idêntico ao do cookie (collations que
+   ignoram maiúsculas/minúsculas não abrem brecha). O `logout(sessionId)` usa a mesma busca.
 2. Sessão válida quando existe, `expires_at` não passou e — com o hub e `max-idle` ligados —
    `last_accessed_at + max-idle` não passou.
 3. **Válida:** coloca um `SentretUser` (com `expiresAt` e `lastAccessedAt`) no `SecurityContext`,

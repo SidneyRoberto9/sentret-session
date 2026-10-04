@@ -16,7 +16,7 @@ configuração.
 | `sentret.cookie-secure` | `boolean` | `true` | Cookie só em HTTPS. `false` apenas em dev local sobre HTTP. |
 | `sentret.cookie-same-site` | `String` | `Lax` | `Lax`, `Strict` ou `None`. |
 | `sentret.cookie-domain` | `String` | — | Compartilha o cookie entre subdomínios (ex.: `meusite.com`). |
-| `sentret.csrf-enabled` | `boolean` | `false` | CSRF na cadeia padrão (`CookieCsrfTokenRepository`). |
+| `sentret.csrf-enabled` | `boolean` | `false` | CSRF na cadeia padrão, no formato de SPA: o front lê o cookie `XSRF-TOKEN` e devolve o valor no header `X-XSRF-TOKEN`. |
 | `sentret.cors-allowed-origins` | `List<String>` | vazio | Origens liberadas, com credenciais. **O CORS liga sozinho quando a lista não está vazia.** |
 | `sentret.permit-all-paths` | `List<String>` | `/login`, `/auth/**`, `/public/**` | Rotas públicas da cadeia padrão. |
 
@@ -38,6 +38,7 @@ Só valem com `sentret.hub.enabled=true` (ver [06](./06-sessao-centralizada-mult
 A lib loga `WARN` (sem impedir o startup) quando:
 
 - `cookie-same-site=None` com CSRF desligado;
+- `cookie-same-site=None` com `cookie-secure=false` (o navegador descarta o cookie e nenhuma sessão chega);
 - `hub.heartbeat-interval` ≥ metade de `max-idle` (usuário ativo pode ser deslogado);
 - `hub.status-poll-interval` ≥ `hub.warning-before` (o aviso pode nunca aparecer);
 - `hub.warning-before` ≥ `max-idle` (o aviso aparece logo no login).

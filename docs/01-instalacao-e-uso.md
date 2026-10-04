@@ -178,6 +178,10 @@ public class SecurityConfig {
 
 > **CSRF e cookie:** autenticação por cookie é sensível a CSRF. Mantenha `SameSite=Lax`/`Strict`
 > (padrão) ou ligue `csrf-enabled`. Evite `SameSite=None` sem CSRF — a lib avisa no startup.
+>
+> Com `csrf-enabled=true` na cadeia padrão, toda resposta traz o cookie `XSRF-TOKEN` e o front
+> devolve o valor no header `X-XSRF-TOKEN` em POST/PUT/PATCH/DELETE (o padrão de Axios e Angular).
+> Com cadeia própria, a configuração de CSRF é sua.
 
 ---
 

@@ -89,7 +89,7 @@ Nothing is required.
 | `cookie-secure` | `true` | `false` only for local HTTP. |
 | `cookie-same-site` | `Lax` | |
 | `cookie-domain` | — | Share the cookie across subdomains. |
-| `csrf-enabled` | `false` | CSRF on the default chain. |
+| `csrf-enabled` | `false` | CSRF on the default chain, SPA style: read the `XSRF-TOKEN` cookie and send it back in the `X-XSRF-TOKEN` header. |
 | `cors-allowed-origins` | — | CORS (with credentials) is on when not empty. |
 | `permit-all-paths` | `/login`, `/auth/**`, `/public/**` | |
 | `hub.enabled` | `false` | Serve the inactivity hub. |
@@ -116,8 +116,9 @@ sentret.cors-allowed-origins=https://app.example.com
 
 ## How it works
 
-- The filter reads the cookie and validates the session with one `SELECT`; the principal carries
-  both deadlines, so the hub never reads the row twice.
+- The filter reads the cookie and validates the session with one `SELECT` (a malformed cookie is
+  rejected without querying, and the stored id must match exactly); the principal carries both
+  deadlines, so the hub never reads the row twice.
 - Only the heartbeat (and an explicit renew) writes `last_accessed_at`. Polls and your own API calls
   never extend a session.
 - Expired rows are purged on login (indexed `DELETE`); there is no scheduler.
