@@ -35,8 +35,10 @@ io.github.sidneyroberto9.sentret
 
 ## 3. Auto-configuração
 
-`SentretAutoConfiguration` sobe quando há `JdbcTemplate` e Spring Security no classpath (e
-`sentret.enabled` não é `false`). Registra, todos com `@ConditionalOnMissingBean`:
+`SentretAutoConfiguration` sobe em aplicação web servlet, com `JdbcTemplate` e Spring Security no
+classpath (e `sentret.enabled` não é `false`); o store precisa de um **bean** `JdbcTemplate`
+(o Boot cria um quando há `DataSource`). Ela é ordenada antes das cadeias padrão do próprio Boot.
+No startup, se a tabela `sentret_sessions` não existir, loga um ERROR. Registra, todos com `@ConditionalOnMissingBean`:
 
 - `SentretSessionStore` → `JdbcSentretSessionStore(jdbcTemplate)`;
 - `SentretService`, `SentretUserService`, `SentretCookieManager`, `SentretAuthenticationFilter`;
