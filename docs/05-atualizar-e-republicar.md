@@ -1,4 +1,4 @@
-# Spring Session Lite — Atualizar a Lib e Republicar
+# Sentret — Atualizar a Lib e Republicar
 
 Fluxo para lançar uma **nova versão** da biblioteca depois que a primeira já
 está no Maven Central. Pressupõe que a configuração do
@@ -30,13 +30,17 @@ A versão segue `MAJOR.MINOR.PATCH`:
 > `M4SID → SLSID`, o rename da tabela e o `SpringSessionLiteUser` virar `record` **quebram**
 > quem já usava `1.0.x` (publicada no Central). Por isso foi lançada como **`2.0.0`** (MAJOR),
 > com guia de migração em [`../MIGRATION.md`](../MIGRATION.md).
+>
+> Já a renomeação para **Sentret** trocou o `artifactId` (`spring-session-lite` → `sentret-session`):
+> é um artefato novo, que recomeça em **`1.0.0`**. Quem usa o antigo só migra trocando a dependência
+> (ver [`../MIGRATION.md`](../MIGRATION.md)).
 
 ---
 
 ## 3. Passo a passo
 
 ```bash
-cd /home/sid/www/personal/sidneyroberto9-spring-session-lite
+cd /home/sid/www/personal/spring-lite-session
 ```
 
 ### 3.1. Faça e valide as alterações de código
@@ -84,13 +88,14 @@ rtk mvn versions:commit      # remove o pom.xml.versionsBackup
 
 ```bash
 rtk mvn clean verify
+rtk mvn clean verify -Pboot4   # mesmo build contra o Spring Boot 4 (o clean é obrigatório ao trocar de profile)
 ```
 
 Confirme em `target/` os três jars da **nova** versão + os `.asc`:
 
-- `spring-session-lite-1.0.1.jar`
-- `spring-session-lite-1.0.1-sources.jar`
-- `spring-session-lite-1.0.1-javadoc.jar`
+- `sentret-session-1.0.1.jar`
+- `sentret-session-1.0.1-sources.jar`
+- `sentret-session-1.0.1-javadoc.jar`
 
 ### 3.5. Publique
 
@@ -126,7 +131,7 @@ Nos `pom.xml` dos apps (eleva-*, etc.), aponte para a nova versão:
 ```xml
 <dependency>
     <groupId>io.github.sidneyroberto9</groupId>
-    <artifactId>spring-session-lite</artifactId>
+    <artifactId>sentret-session</artifactId>
     <version>1.0.1</version>
 </dependency>
 ```
@@ -170,10 +175,11 @@ Quando estiver tudo certo, aí sim faz o `deploy` para o Central.
 ## 6. Resumo (TL;DR)
 
 ```bash
-cd /home/sid/www/personal/sidneyroberto9-spring-session-lite
+cd /home/sid/www/personal/spring-lite-session
 rtk mvn clean test
 rtk mvn versions:set -DnewVersion=1.0.1 && rtk mvn versions:commit
 rtk mvn clean verify
+rtk mvn clean verify -Pboot4   # mesmo build contra o Spring Boot 4 (o clean é obrigatório ao trocar de profile)
 rtk mvn clean deploy
 # → central.sonatype.com → Deployments → Publish
 rtk git tag -a v1.0.1 -m "v1.0.1" && rtk git push origin main --tags

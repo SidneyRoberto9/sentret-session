@@ -1,4 +1,4 @@
-# Spring Session Lite — Publicar no Maven Central
+# Sentret — Publicar no Maven Central
 
 Guia completo para publicar a biblioteca no **Maven Central** pela primeira vez,
 usando o **Central Portal** da Sonatype (`central.sonatype.com`) — o fluxo novo,
@@ -98,7 +98,7 @@ gpg --keyserver keys.openpgp.org      --send-keys C4D3857BBE0E26A8
 ## 3. Antes de publicar — checklist
 
 ```bash
-cd /home/sid/www/personal/sidneyroberto9-spring-session-lite
+cd /home/sid/www/personal/spring-lite-session
 ```
 
 1. **Versão definida** no `pom.xml`. Para um release a versão **não** pode ser
@@ -118,12 +118,13 @@ cd /home/sid/www/personal/sidneyroberto9-spring-session-lite
 
    ```bash
    rtk mvn clean verify
+   rtk mvn clean verify -Pboot4   # mesmo build contra o Spring Boot 4 (o clean é obrigatório ao trocar de profile)
    ```
 
    Confira em `target/` que existem:
-   - `spring-session-lite-2.0.0.jar`
-   - `spring-session-lite-2.0.0-sources.jar`
-   - `spring-session-lite-2.0.0-javadoc.jar`
+   - `sentret-session-1.0.0.jar`
+   - `sentret-session-1.0.0-sources.jar`
+   - `sentret-session-1.0.0-javadoc.jar`
    - um `.asc` para cada um deles e para o `.pom`
 
    > A assinatura roda na fase `verify`. Se pedir a _passphrase_ da chave GPG e
@@ -185,13 +186,13 @@ Aí o `deploy` já solta direto no Central quando a validação passa.
 - A sincronização para `repo1.maven.org` / `search.maven.org` leva de
   **alguns minutos a ~30 min**, às vezes mais para indexar na busca.
 - Verifique em:
-  `https://repo1.maven.org/maven2/io/github/sidneyroberto9/spring-session-lite/1.0.0/`
+  `https://repo1.maven.org/maven2/io/github/sidneyroberto9/sentret-session/1.0.0/`
 - A partir daí qualquer projeto pode declarar:
 
   ```xml
   <dependency>
       <groupId>io.github.sidneyroberto9</groupId>
-      <artifactId>spring-session-lite</artifactId>
+      <artifactId>sentret-session</artifactId>
       <version>1.0.0</version>
   </dependency>
   ```
@@ -216,9 +217,10 @@ Aí o `deploy` já solta direto no Central quando a validação passa.
 ```bash
 # uma vez: settings.xml com server 'central' + chave GPG no keyserver (já feito)
 
-cd /home/sid/www/personal/sidneyroberto9-spring-session-lite
+cd /home/sid/www/personal/spring-lite-session
 rtk mvn clean test            # testes verdes
 rtk mvn clean verify          # confere jars + assinaturas em target/
+rtk mvn clean verify -Pboot4   # mesmo build contra o Spring Boot 4 (o clean é obrigatório ao trocar de profile)
 rtk mvn clean deploy          # sobe para o Central Portal (VALIDATED)
 # → central.sonatype.com → Deployments → Publish
 ```
