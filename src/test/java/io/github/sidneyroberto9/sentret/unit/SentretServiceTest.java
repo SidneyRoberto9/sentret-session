@@ -134,6 +134,20 @@ class SentretServiceTest {
         verifyNoInteractions(store);
     }
 
+    /**
+     * MySQL, MariaDB and SQL Server compare VARCHAR case-insensitively by default, so a lookup can
+     * return a row whose id differs only in case. That must not authenticate.
+     */
+    @Test
+    void validateRejectsARowWhoseIdDiffersOnlyInCase() {
+        Instant now = Instant.now();
+        String sameLettersOtherCase = SID.toLowerCase();
+        SentretSession stored = new SentretSession(SID, "user-1", "user@test.com", now, now.plus(Duration.ofHours(1)), now);
+        when(store.findBySessionId(sameLettersOtherCase)).thenReturn(Optional.of(stored));
+
+        assertThat(service.validate(sameLettersOtherCase)).isEmpty();
+    }
+
     @Test
     void validateReturnsEmptyPastAbsoluteExpiry() {
         Instant now = Instant.now();

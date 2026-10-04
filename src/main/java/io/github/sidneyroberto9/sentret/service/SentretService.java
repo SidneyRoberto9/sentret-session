@@ -52,6 +52,7 @@ public class SentretService {
     /**
      * Who the session belongs to; empty when it is unknown, past its absolute expiry, or idle for
      * longer than max-idle. Read-only on purpose: validating is not activity (see {@link #touch}).
+     * The id must match exactly, even on databases whose default collation ignores case.
      */
     public Optional<SentretUser> validate(String sessionId) {
         if (!SESSION_ID_FORMAT.matcher(sessionId).matches()) {
@@ -61,6 +62,7 @@ public class SentretService {
         Instant now = Instant.now();
 
         return store.findBySessionId(sessionId)
+                .filter(session -> session.sessionId().equals(sessionId))
                 .filter(session -> !session.expiresAt().isBefore(now))
                 .filter(session -> !isIdleExpired(session.lastAccessedAt(), now))
                 .map(this::toUser);

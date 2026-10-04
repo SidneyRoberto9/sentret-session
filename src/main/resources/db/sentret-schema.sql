@@ -1,6 +1,12 @@
 -- Sentret — run once (Flyway, Liquibase or by hand) before starting the application.
 -- Portable as written: MySQL, MariaDB, PostgreSQL, SQL Server and H2.
 -- Times are epoch milliseconds (BIGINT): no time-zone conversion, no 2038 limit.
+--
+-- session_id is case-sensitive. MySQL, MariaDB and SQL Server ignore case by default; give the
+-- column a binary collation there so lookups and the primary key keep all 120 bits:
+--   MySQL / MariaDB: session_id VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY,
+--   SQL Server:      session_id VARCHAR(20) COLLATE Latin1_General_BIN2 NOT NULL PRIMARY KEY,
+-- PostgreSQL and H2 already compare case-sensitively.
 
 CREATE TABLE sentret_sessions (
     session_id       VARCHAR(20)  NOT NULL PRIMARY KEY,
