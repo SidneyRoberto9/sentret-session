@@ -19,7 +19,7 @@ Sucede o `spring-session-lite` 3.0.0. Guia completo em `MIGRATION.md`.
 - 401 pelo `HttpStatusEntryPoint`, sem corpo.
 - Propriedades do hub agrupadas em `sentret.hub.*`; CORS inferido de `cors-allowed-origins`; `max-idle` padrão `30m`.
 - Hub com Controller só HTTP, `SentretHubStatusService` e DTOs em `hub.dto.response`.
-- Compatível com Spring Boot 3.5 e 4.x (profile `boot4`).
+- Compatível com Spring Boot 3.3+ e 4.x (verificado no 3.3.3, 3.5.15 e 4.1.1; profile `boot4`).
 
 ### Segurança e robustez
 - `SentretUser#sessionId` nunca é serializado (é o valor do cookie `HttpOnly`).
@@ -41,6 +41,11 @@ Sucede o `spring-session-lite` 3.0.0. Guia completo em `MIGRATION.md`.
 - Aviso no startup quando um cookie `__Host-`/`__Secure-` não cumpre as regras do prefixo.
 - `config.loginUrl` não definido é omitido do status.
 - `spring-boot-starter-web` passou a ser dependência opcional (a lib não impõe o Tomcat).
+- Nova propriedade `csrf-ignored-paths` (ex.: o logout que o client npm chama sem token).
+- `cors-allowed-origins` aceita padrões (`https://*.dominio.com`); `*` não derruba mais toda request com 500.
+- `/actuator/health/**` entra nas rotas públicas padrão (probes não recebem 401).
+- ERROR no startup quando a tabela `sentret_sessions` não existe.
+- A cadeia padrão é ordenada explicitamente antes das cadeias padrão do Boot 3 e 4.
 
 ### Removido
 - Vínculo com IP (`ip-hash-salt`, `trust-forwarded-for`, `trusted-proxy-count`).
