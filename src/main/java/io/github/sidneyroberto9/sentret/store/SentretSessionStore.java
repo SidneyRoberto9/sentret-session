@@ -1,24 +1,25 @@
 package io.github.sidneyroberto9.sentret.store;
 
-import io.github.sidneyroberto9.sentret.domain.SentretSession;
-
 import java.time.Instant;
 import java.util.Optional;
 
 /**
- * Storage abstraction for sessions. The default implementation is JPA-backed
- * ({@link JpaSentretSessionStore}); provide your own bean to swap in Redis/Mongo/etc.
+ * Storage abstraction for sessions. The default implementation is {@link JdbcSentretSessionStore};
+ * declare your own bean of this type to replace it.
  */
 public interface SentretSessionStore {
 
-    SentretSession save(SentretSession session);
+    void insert(SentretSession session);
 
     Optional<SentretSession> findBySessionId(String sessionId);
+
+    void updateLastAccessedAt(String sessionId, Instant lastAccessedAt);
+
+    void updateExpiresAt(String sessionId, Instant expiresAt, Instant lastAccessedAt);
 
     void deleteBySessionId(String sessionId);
 
     void deleteByUserId(String userId);
 
     void deleteExpired(Instant now);
-
 }

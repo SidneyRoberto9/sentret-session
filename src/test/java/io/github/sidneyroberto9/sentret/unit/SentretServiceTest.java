@@ -1,14 +1,17 @@
 package io.github.sidneyroberto9.sentret.unit;
 
 import io.github.sidneyroberto9.sentret.config.SentretProperties;
-import io.github.sidneyroberto9.sentret.domain.SentretSession;
+import io.github.sidneyroberto9.sentret.event.SentretSessionCreatedEvent;
+import io.github.sidneyroberto9.sentret.event.SentretSessionDestroyedEvent;
 import io.github.sidneyroberto9.sentret.event.SentretSessionRenewedEvent;
 import io.github.sidneyroberto9.sentret.security.SentretUser;
 import io.github.sidneyroberto9.sentret.service.SentretCookieManager;
 import io.github.sidneyroberto9.sentret.service.SentretService;
 import io.github.sidneyroberto9.sentret.service.SentretSessionRemaining;
+import io.github.sidneyroberto9.sentret.store.SentretSession;
 import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
 import jakarta.servlet.http.Cookie;
+import org.assertj.core.data.Offset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -24,13 +27,18 @@ import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 class SentretServiceTest {
+
+    private static final Offset<Long> FIVE_SECONDS = Offset.offset(5_000L);
 
     private SentretProperties properties;
     private SentretSessionStore store;
@@ -41,26 +49,41 @@ class SentretServiceTest {
     @BeforeEach
     void setUp() {
         properties = new SentretProperties();
+        properties.setMaxIdle(Duration.ofMinutes(10));
         store = mock(SentretSessionStore.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         cookieManager = new SentretCookieManager(properties);
-
         service = new SentretService(store, properties, eventPublisher, cookieManager);
     }
 
-    private SentretSession sessionFor(Instant now) {
-        SentretSession session = new SentretSession();
-        session.setSessionId("sid");
-        session.setUserId("user-1");
-        session.setEmail("user@test.com");
-        session.setCreatedAt(now.minus(Duration.ofHours(1)));
-        session.setExpiresAt(now.plus(Duration.ofHours(1)));
-        session.setLastAccessedAt(now);
-        return session;
+    private void stored(Instant expiresAt, Instant lastAccessedAt) {
+        SentretSession session = new SentretSession(
+                "sid", "user-1", "user@test.com", lastAccessedAt.minus(Duration.ofHours(1)), expiresAt, lastAccessedAt);
+        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
     }
 
-    // --- login(): 4-arg overload delegates to the 5-arg one with no roles ---
+    private static SentretUser user(Instant expiresAt, Instant lastAccessedAt) {
+        return new SentretUser("user-1", "user@test.com", "sid", expiresAt, lastAccessedAt);
+    }
 
+    // --- login ---
+
+    @Test
+    void loginInsertsSessionWritesCookieAndPublishesEvent() {
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        SentretUser user = service.login("user-1", "user@test.com", response);
+
+        ArgumentCaptor<SentretSession> captor = ArgumentCaptor.forClass(SentretSession.class);
+        verify(store).insert(captor.capture());
+        SentretSession inserted = captor.getValue();
+        assertThat(inserted.sessionId()).isEqualTo(user.sessionId());
+        assertThat(inserted.userId()).isEqualTo("user-1");
+        assertThat(inserted.expiresAt()).isEqualTo(inserted.createdAt().plus(properties.getTtl()));
+        assertThat(inserted.lastAccessedAt()).isEqualTo(inserted.createdAt());
+        assertThat(response.getHeader("Set-Cookie")).contains(user.sessionId());
+        verify(eventPublisher).publishEvent(any(SentretSessionCreatedEvent.class));
+    }
 
     @Test
     void loginGeneratesTwentyCharUrlSafeUniqueSessionIds() {
@@ -73,454 +96,259 @@ class SentretServiceTest {
         assertThat(ids).hasSize(1_000).allMatch(id -> id.matches("[A-Za-z0-9_-]{20}"));
     }
 
-    // --- logoutAll() ---
+    // --- validate ---
 
     @Test
-    void logoutAllDeletesEverySessionForUser() {
-        service.logoutAll("user-1");
-
-        verify(store).deleteByUserId("user-1");
-    }
-
-    // --- deleteExpired() ---
-
-    @Test
-    void deleteExpiredDelegatesToStoreWithCurrentInstant() {
-        service.deleteExpired();
-
-        verify(store).deleteExpired(any());
-    }
-
-    // --- touch(): early-return guard when nothing would change ---
-
-    @Test
-    void touchIsNoOpWhenNoTrackingIsEnabled() {
-        properties.setUpdateLastAccessed(false);
-        properties.setSlidingExpiration(false);
-        // maxIdle defaults to Duration.ZERO -> isIdleEnabled() is false too
+    void validateReturnsUserCarryingTheSessionDeadlines() {
         Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        Instant lastAccessed = now.minus(Duration.ofHours(1));
-        session.setLastAccessedAt(lastAccessed);
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+        stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(1)));
 
-        service.touch("sid");
+        SentretUser user = service.validate("sid").orElseThrow();
 
-        assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
-        verify(store, never()).save(any());
-    }
-
-    // --- touch(): sliding expiration pushes expiresAt out too ---
-
-    @Test
-    void touchSlidesExpiresAtWhenSlidingExpirationEnabled() {
-        properties.setTtl(Duration.ofHours(1));
-        properties.setSlidingExpiration(true);
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setExpiresAt(now.plus(Duration.ofMinutes(1)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        service.touch("sid");
-
-        assertThat(session.getExpiresAt()).isAfter(now.plus(Duration.ofMinutes(55)));
-        verify(store).save(session);
-    }
-
-    // --- touch(): sliding expiration alone (no updateLastAccessed, no idle) still writes ---
-
-    @Test
-    void touchSlidesExpiresAtWithoutTouchingLastAccessedWhenOnlySlidingExpirationEnabled() {
-        properties.setUpdateLastAccessed(false);
-        properties.setSlidingExpiration(true);
-        properties.setTtl(Duration.ofHours(1));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        Instant lastAccessed = now.minus(Duration.ofMinutes(10));
-        session.setLastAccessedAt(lastAccessed);
-        session.setExpiresAt(now.plus(Duration.ofMinutes(1)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        service.touch("sid");
-
-        assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
-        assertThat(session.getExpiresAt()).isAfter(now.plus(Duration.ofMinutes(55)));
-        verify(store).save(session);
-    }
-
-    // --- touch(): idle-enabled alone (no updateLastAccessed, no sliding) still resets the clock ---
-
-    @Test
-    void touchResetsLastAccessedWhenOnlyIdleEnabledEvenWithUpdateLastAccessedDisabled() {
-        properties.setUpdateLastAccessed(false);
-        properties.setSlidingExpiration(false);
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        Instant lastAccessed = now.minus(Duration.ofMinutes(5));
-        session.setLastAccessedAt(lastAccessed);
-        Instant expiresAt = session.getExpiresAt();
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        service.touch("sid");
-
-        assertThat(session.getLastAccessedAt()).isAfter(now.minus(Duration.ofSeconds(5)));
-        assertThat(session.getExpiresAt()).isEqualTo(expiresAt);
-        verify(store).save(session);
-    }
-
-    // --- isIdleEnabled(): null maxIdle is treated as disabled, same as zero/negative ---
-
-    @Test
-    void remainingTreatsNullMaxIdleAsDisabled() {
-        properties.setMaxIdle(null);
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        Optional<SentretSessionRemaining> result = service.remaining("sid");
-
-        assertThat(result).isPresent();
-        assertThat(result.get().idleRemainingMs()).isNull();
-    }
-
-    // --- logout(request, response): no cookie present ---
-
-    @Test
-    void logoutWithRequestAndResponseSkipsSessionLookupWhenNoCookiePresent() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        MockHttpServletResponse response = new MockHttpServletResponse();
-
-        service.logout(request, response);
-
-        verify(store, never()).findBySessionId(any());
-        assertThat(response.getHeader("Set-Cookie")).isNotNull();
-    }
-
-    // --- joinRoles()/splitRoles(): null vs blank vs populated, and blank-entry filtering ---
-
-
-
-
-    // --- validate(): inactivity expiration ---
-
-    @Test
-    void validateReturnsEmptyWhenIdleExceedsMaxIdle() {
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(now.minus(Duration.ofMinutes(11)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        Optional<SentretUser> result = service.validate("sid");
-
-        assertThat(result).isEmpty();
-        verify(store, never()).save(any());
+        assertThat(user.userId()).isEqualTo("user-1");
+        assertThat(user.expiresAt()).isEqualTo(now.plus(Duration.ofHours(1)));
+        assertThat(user.lastAccessedAt()).isEqualTo(now.minus(Duration.ofMinutes(1)));
     }
 
     @Test
-    void validateReturnsPresentButDoesNotResetIdleClockWithinMaxIdle() {
-        // A session inside the maxIdle window is kept alive, but validating it is NOT activity:
-        // lastAccessedAt must not move. Otherwise the client's own /status poll (every
-        // statusPollInterval, well under the effective throttle) would refresh the idle deadline
-        // forever and maxIdle could never elapse. Only touch() -- i.e. POST /session/heartbeat --
-        // resets the clock.
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        Instant lastAccessed = now.minus(Duration.ofMinutes(9));
-        session.setLastAccessedAt(lastAccessed);
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        Optional<SentretUser> result = service.validate("sid");
-
-        assertThat(result).isPresent();
-        assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
-        verify(store, never()).save(session);
-    }
-
-    @Test
-    void touchResetsIdleClock() {
-        // The heartbeat path: the one and only activity signal.
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(now.minus(Duration.ofMinutes(9)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        service.touch("sid");
-
-        assertThat(session.getLastAccessedAt()).isAfter(now.minus(Duration.ofSeconds(5)));
-        verify(store).save(session);
-    }
-
-    @Test
-    void touchIsNoOpWhenSessionNotFound() {
+    void validateReturnsEmptyForUnknownSession() {
         when(store.findBySessionId("gone")).thenReturn(Optional.empty());
 
-        service.touch("gone");
-
-        verify(store, never()).save(any());
-    }
-
-    /**
-     * A poll cannot rescue a session that has gone idle, no matter how often it runs: the reproduction
-     * of the bug this behaviour exists to prevent.
-     */
-    @Test
-    void repeatedValidationNeverExtendsIdleWindow() {
-        properties.setMaxIdle(Duration.ofMinutes(2));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        Instant lastAccessed = now.minus(Duration.ofSeconds(90));
-        session.setLastAccessedAt(lastAccessed);
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        for (int i = 0; i < 10; i++) {
-            service.validate("sid");
-        }
-
-        assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
-        verify(store, never()).save(any());
+        assertThat(service.validate("gone")).isEmpty();
     }
 
     @Test
-    void validateIgnoresInactivityWhenMaxIdleDisabledByDefault() {
-        // maxIdle defaults to Duration.ZERO (disabled), preserving pre-2.1 behavior exactly.
+    void validateReturnsEmptyPastAbsoluteExpiry() {
         Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(now.minus(Duration.ofHours(10)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        assertThat(service.validate("sid")).isPresent();
-    }
-
-    @Test
-    void validateIgnoresInactivityWhenMaxIdleNegative() {
-        properties.setMaxIdle(Duration.ofMinutes(-5));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(now.minus(Duration.ofHours(10)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        assertThat(service.validate("sid")).isPresent();
-    }
-
-    @Test
-    void validateFallsBackToCreatedAtWhenLastAccessedAtNullAndIdleExceeded() {
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(null);
-        session.setCreatedAt(now.minus(Duration.ofMinutes(11)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+        stored(now.minus(Duration.ofSeconds(1)), now);
 
         assertThat(service.validate("sid")).isEmpty();
     }
 
     @Test
-    void validateFallsBackToCreatedAtWhenLastAccessedAtNullAndWithinIdle() {
-        properties.setMaxIdle(Duration.ofMinutes(10));
+    void validateReturnsEmptyWhenIdleExceedsMaxIdle() {
         Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(null);
-        session.setCreatedAt(now.minus(Duration.ofMinutes(1)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+        stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(11)));
+
+        assertThat(service.validate("sid")).isEmpty();
+    }
+
+    @Test
+    void validateIgnoresIdleWhenMaxIdleIsZero() {
+        properties.setMaxIdle(Duration.ZERO);
+        Instant now = Instant.now();
+        stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofHours(5)));
+
+        assertThat(service.validate("sid")).isPresent();
+    }
+
+    @Test
+    void validateIgnoresIdleWhenMaxIdleIsNull() {
+        properties.setMaxIdle(null);
+        Instant now = Instant.now();
+        stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofHours(5)));
 
         assertThat(service.validate("sid")).isPresent();
     }
 
     /**
-     * A heartbeat is never throttled away. This is the bug that logged active users out: the user
-     * moves the mouse while the inactivity warning is up, the client sends the heartbeat, and the
-     * server silently drops it because the previous touch was recent — so `lastAccessedAt` never
-     * moved, the idle-watch kept pushing `warning`, and the countdown ran to zero with the user
-     * sitting right there. The client already throttles heartbeats to `heartbeat-interval`; there
-     * is nothing left for this layer to protect against.
+     * Validating is not activity. The client polls the status every 30s whether or not the user is
+     * there; if validation wrote last_accessed_at, max-idle could never elapse.
      */
     @Test
-    void touchAlwaysWritesEvenImmediatelyAfterAPreviousTouch() {
-        properties.setMaxIdle(Duration.ofMinutes(4));
-        properties.setLastAccessedThrottle(Duration.ofMinutes(5));
+    void repeatedValidationNeverWrites() {
         Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(now.minus(Duration.ofSeconds(1)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+        stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofSeconds(90)));
 
-        service.touch("sid");
+        for (int i = 0; i < 10; i++) {
+            service.validate("sid");
+        }
 
-        assertThat(session.getLastAccessedAt()).isAfter(now.minus(Duration.ofSeconds(1)));
-        verify(store).save(session);
+        verify(store, times(10)).findBySessionId("sid");
+        verifyNoMoreInteractions(store);
     }
 
+    // --- touch (heartbeat) ---
+
     @Test
-    void touchIsNotCappedByLastAccessedThrottle() {
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        properties.setLastAccessedThrottle(Duration.ofHours(1));
+    void touchWritesWithOneUpdateAndReturnsTheRefreshedUser() {
         Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(now.minus(Duration.ofSeconds(5)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+        SentretUser user = user(now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(9)));
 
-        service.touch("sid");
+        SentretUser touched = service.touch(user);
 
-        assertThat(session.getLastAccessedAt()).isAfter(now.minus(Duration.ofSeconds(5)));
-        verify(store).save(session);
+        ArgumentCaptor<Instant> at = ArgumentCaptor.forClass(Instant.class);
+        verify(store).updateLastAccessedAt(eq("sid"), at.capture());
+        verifyNoMoreInteractions(store);
+        assertThat(touched.lastAccessedAt()).isEqualTo(at.getValue()).isAfter(now.minusSeconds(1));
+        assertThat(touched.expiresAt()).isEqualTo(user.expiresAt());
     }
 
     /**
-     * The scenario end to end: a session one second away from idle expiry is fully rescued by a
-     * single heartbeat.
+     * Never throttled. The client already throttles heartbeats to heartbeat-interval; dropping one
+     * here is the bug that logged active users out while the warning was on screen.
      */
     @Test
-    void touchRescuesSessionAboutToIdleExpire() {
-        properties.setMaxIdle(Duration.ofMinutes(2));
+    void touchWritesEvenRightAfterAPreviousTouch() {
         Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(now.minus(Duration.ofSeconds(119)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        service.touch("sid");
+        service.touch(user(now.plus(Duration.ofHours(1)), now.minusSeconds(1)));
 
-        assertThat(service.validate("sid")).isPresent();
-        assertThat(service.remaining("sid").orElseThrow().idleRemainingMs())
-                .isGreaterThan(Duration.ofSeconds(115).toMillis());
-    }
-
-    // --- renew(sessionId) ---
-
-    @Test
-    void renewBySessionIdResetsExpiresAtAndLastAccessedAtAndPublishesEvent() {
-        properties.setTtl(Duration.ofHours(2));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setExpiresAt(now.plus(Duration.ofMinutes(1)));
-        session.setLastAccessedAt(now.minus(Duration.ofMinutes(30)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
-        Optional<SentretUser> result = service.renew("sid");
-
-        assertThat(result).isPresent();
-        assertThat(session.getExpiresAt()).isAfter(now.plus(Duration.ofHours(1)));
-        assertThat(session.getLastAccessedAt()).isAfter(now.minus(Duration.ofSeconds(5)));
-        verify(store).save(session);
-
-        ArgumentCaptor<SentretSessionRenewedEvent> captor = ArgumentCaptor.forClass(SentretSessionRenewedEvent.class);
-        verify(eventPublisher).publishEvent(captor.capture());
-        assertThat(captor.getValue().sessionId()).isEqualTo("sid");
-        assertThat(captor.getValue().userId()).isEqualTo("user-1");
+        verify(store).updateLastAccessedAt(eq("sid"), any());
     }
 
     @Test
-    void renewBySessionIdReturnsEmptyWhenSessionNotFound() {
+    void touchIsNoOpWhenIdleDisabled() {
+        properties.setMaxIdle(Duration.ZERO);
+        SentretUser user = user(Instant.now().plus(Duration.ofHours(1)), Instant.now());
+
+        assertThat(service.touch(user)).isSameAs(user);
+        verifyNoInteractions(store);
+    }
+
+    // --- remaining ---
+
+    @Test
+    void remainingComesFromThePrincipalWithoutStoreAccess() {
+        Instant now = Instant.now();
+
+        SentretSessionRemaining remaining = service.remaining(
+                user(now.plus(Duration.ofMinutes(30)), now.minus(Duration.ofMinutes(4))));
+
+        assertThat(remaining.absoluteRemainingMs()).isCloseTo(Duration.ofMinutes(30).toMillis(), FIVE_SECONDS);
+        assertThat(remaining.idleRemainingMs()).isCloseTo(Duration.ofMinutes(6).toMillis(), FIVE_SECONDS);
+        verifyNoInteractions(store);
+    }
+
+    @Test
+    void remainingHasNoIdleDeadlineWhenIdleDisabled() {
+        properties.setMaxIdle(Duration.ZERO);
+        Instant now = Instant.now();
+
+        SentretSessionRemaining remaining = service.remaining(user(now.plus(Duration.ofMinutes(30)), now));
+
+        assertThat(remaining.idleRemainingMs()).isNull();
+    }
+
+    @Test
+    void remainingClampsToZeroPastBothDeadlines() {
+        Instant now = Instant.now();
+
+        SentretSessionRemaining remaining = service.remaining(
+                user(now.minus(Duration.ofMinutes(1)), now.minus(Duration.ofMinutes(20))));
+
+        assertThat(remaining.absoluteRemainingMs()).isZero();
+        assertThat(remaining.idleRemainingMs()).isZero();
+    }
+
+    // --- renew ---
+
+    @Test
+    void renewResetsBothDeadlinesAndPublishesEvent() {
+        Instant now = Instant.now();
+        stored(now.plus(Duration.ofMinutes(1)), now.minus(Duration.ofMinutes(5)));
+
+        SentretUser renewed = service.renew("sid").orElseThrow();
+
+        ArgumentCaptor<Instant> expiresAt = ArgumentCaptor.forClass(Instant.class);
+        ArgumentCaptor<Instant> lastAccessedAt = ArgumentCaptor.forClass(Instant.class);
+        verify(store).updateExpiresAt(eq("sid"), expiresAt.capture(), lastAccessedAt.capture());
+        assertThat(expiresAt.getValue()).isEqualTo(lastAccessedAt.getValue().plus(properties.getTtl()));
+        assertThat(renewed.expiresAt()).isEqualTo(expiresAt.getValue());
+        assertThat(renewed.lastAccessedAt()).isEqualTo(lastAccessedAt.getValue());
+
+        ArgumentCaptor<SentretSessionRenewedEvent> event = ArgumentCaptor.forClass(SentretSessionRenewedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().userId()).isEqualTo("user-1");
+        assertThat(event.getValue().sessionId()).isEqualTo("sid");
+    }
+
+    @Test
+    void renewOfUnknownSessionReturnsEmptyAndPublishesNothing() {
         when(store.findBySessionId("missing")).thenReturn(Optional.empty());
 
         assertThat(service.renew("missing")).isEmpty();
         verify(eventPublisher, never()).publishEvent(any());
     }
 
-    // --- renew(request, response) ---
+    @Test
+    void renewDoesNotResurrectAnIdleExpiredSession() {
+        Instant now = Instant.now();
+        stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(11)));
+
+        assertThat(service.renew("sid")).isEmpty();
+        verify(store, never()).updateExpiresAt(any(), any(), any());
+    }
 
     @Test
-    void renewWithRequestAndResponseRewritesCookieMaxAge() {
+    void renewWithRequestRewritesTheCookie() {
         properties.setTtl(Duration.ofMinutes(30));
         Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setExpiresAt(now.plus(Duration.ofMinutes(2)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
-
+        stored(now.plus(Duration.ofMinutes(2)), now);
         MockHttpServletRequest request = new MockHttpServletRequest();
         request.setCookies(new Cookie(cookieManager.cookieName(), "sid"));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        Optional<SentretUser> result = service.renew(request, response);
-
-        assertThat(result).isPresent();
-        assertThat(session.getExpiresAt()).isAfter(now.plus(Duration.ofMinutes(29)));
-
-        String setCookie = response.getHeader("Set-Cookie");
-        assertThat(setCookie).isNotNull();
-        assertThat(setCookie).contains("Max-Age=1800");
+        assertThat(service.renew(request, response)).isPresent();
+        assertThat(response.getHeader("Set-Cookie")).contains("Max-Age=1800");
     }
 
     @Test
-    void renewWithRequestAndResponseReturnsEmptyWhenNoCookiePresent() {
-        MockHttpServletRequest request = new MockHttpServletRequest();
+    void renewWithRequestWithoutCookieDoesNothing() {
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        assertThat(service.renew(request, response)).isEmpty();
+        assertThat(service.renew(new MockHttpServletRequest(), response)).isEmpty();
         verifyNoInteractions(store);
         assertThat(response.getHeader("Set-Cookie")).isNull();
     }
 
-    // --- remaining() ---
+    // --- logout ---
 
     @Test
-    void remainingReturnsEmptyWhenSessionNotFound() {
-        when(store.findBySessionId("missing")).thenReturn(Optional.empty());
+    void logoutDeletesTheSessionAndPublishesEventWithUserId() {
+        Instant now = Instant.now();
+        stored(now.plus(Duration.ofHours(1)), now);
 
-        assertThat(service.remaining("missing")).isEmpty();
+        service.logout("sid");
+
+        verify(store).deleteBySessionId("sid");
+        ArgumentCaptor<SentretSessionDestroyedEvent> event = ArgumentCaptor.forClass(SentretSessionDestroyedEvent.class);
+        verify(eventPublisher).publishEvent(event.capture());
+        assertThat(event.getValue().userId()).isEqualTo("user-1");
+        assertThat(event.getValue().sessionId()).isEqualTo("sid");
     }
 
     @Test
-    void remainingReturnsNullIdleRemainingWhenMaxIdleDisabledByDefault() {
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setExpiresAt(now.plus(Duration.ofMinutes(30)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+    void logoutOfUnknownSessionPublishesNothing() {
+        when(store.findBySessionId("gone")).thenReturn(Optional.empty());
 
-        Optional<SentretSessionRemaining> result = service.remaining("sid");
+        service.logout("gone");
 
-        assertThat(result).isPresent();
-        assertThat(result.get().absoluteRemainingMs()).isCloseTo(Duration.ofMinutes(30).toMillis(), org.assertj.core.data.Offset.offset(5_000L));
-        assertThat(result.get().idleRemainingMs()).isNull();
+        verify(store, never()).deleteBySessionId(any());
+        verifyNoInteractions(eventPublisher);
     }
 
     @Test
-    void remainingComputesIdleRemainingWhenMaxIdleEnabled() {
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setExpiresAt(now.plus(Duration.ofMinutes(30)));
-        session.setLastAccessedAt(now.minus(Duration.ofMinutes(4)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+    void logoutWithRequestClearsTheCookieEvenWithoutSession() {
+        MockHttpServletResponse response = new MockHttpServletResponse();
 
-        Optional<SentretSessionRemaining> result = service.remaining("sid");
+        service.logout(new MockHttpServletRequest(), response);
 
-        assertThat(result).isPresent();
-        // idle deadline = lastAccessedAt(now-4m) + maxIdle(10m) = now+6m from "now"
-        assertThat(result.get().idleRemainingMs()).isCloseTo(Duration.ofMinutes(6).toMillis(), org.assertj.core.data.Offset.offset(5_000L));
+        verify(store, never()).findBySessionId(any());
+        assertThat(response.getHeader("Set-Cookie")).contains("Max-Age=0");
     }
 
     @Test
-    void remainingFallsBackToCreatedAtWhenLastAccessedAtNullAndMaxIdleEnabled() {
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setLastAccessedAt(null);
-        session.setCreatedAt(now.minus(Duration.ofMinutes(2)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+    void logoutAllDeletesEverySessionOfTheUser() {
+        service.logoutAll("user-1");
 
-        Optional<SentretSessionRemaining> result = service.remaining("sid");
-
-        assertThat(result).isPresent();
-        // idle deadline = createdAt(now-2m) + maxIdle(10m) = now+8m from "now"
-        assertThat(result.get().idleRemainingMs()).isCloseTo(Duration.ofMinutes(8).toMillis(), org.assertj.core.data.Offset.offset(5_000L));
+        verify(store).deleteByUserId("user-1");
     }
 
     @Test
-    void remainingClampsToZeroWhenAlreadyPastExpiryOrIdleDeadline() {
-        properties.setMaxIdle(Duration.ofMinutes(10));
-        Instant now = Instant.now();
-        SentretSession session = sessionFor(now);
-        session.setExpiresAt(now.minus(Duration.ofMinutes(1)));
-        session.setLastAccessedAt(now.minus(Duration.ofMinutes(20)));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+    void deleteExpiredDelegatesToStore() {
+        service.deleteExpired();
 
-        Optional<SentretSessionRemaining> result = service.remaining("sid");
-
-        assertThat(result).isPresent();
-        assertThat(result.get().absoluteRemainingMs()).isZero();
-        assertThat(result.get().idleRemainingMs()).isZero();
+        verify(store).deleteExpired(any());
     }
 }

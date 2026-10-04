@@ -77,7 +77,7 @@ class SentretCurrentSessionArgumentResolverTest {
 
     @Test
     void resolveArgumentReturnsUserWhenPrincipalIsSentretUser() {
-        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1");
+        SentretUser user = new SentretUser("user-1", "user@test.com", "sid-1", null, null);
         Authentication authentication = new UsernamePasswordAuthenticationToken(user, null, List.of());
         SecurityContextHolder.getContext().setAuthentication(authentication);
 

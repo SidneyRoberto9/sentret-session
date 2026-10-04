@@ -45,7 +45,7 @@ class SentretUserServiceTest {
 
     @Test
     void returnsUserWhenPrincipalIsSentretUser() {
-        SentretUser principal = new SentretUser("user-1", "john@example.com", "session-1");
+        SentretUser principal = new SentretUser("user-1", "john@example.com", "session-1", null, null);
         SecurityContextHolder.setContext(new SecurityContextImpl(
                 new TestingAuthenticationToken(principal, null)));
 

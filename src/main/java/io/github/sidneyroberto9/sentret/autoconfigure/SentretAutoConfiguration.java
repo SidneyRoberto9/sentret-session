@@ -2,23 +2,17 @@ package io.github.sidneyroberto9.sentret.autoconfigure;
 
 import io.github.sidneyroberto9.sentret.config.SentretProperties;
 import io.github.sidneyroberto9.sentret.config.SentretSecurityValidator;
-import io.github.sidneyroberto9.sentret.domain.SentretSession;
-import io.github.sidneyroberto9.sentret.domain.SentretSessionRepository;
 import io.github.sidneyroberto9.sentret.scheduler.SentretCleanupTask;
 import io.github.sidneyroberto9.sentret.security.SentretAuthenticationFilter;
 import io.github.sidneyroberto9.sentret.service.SentretCookieManager;
 import io.github.sidneyroberto9.sentret.service.SentretService;
 import io.github.sidneyroberto9.sentret.service.SentretUserService;
-import io.github.sidneyroberto9.sentret.store.JpaSentretSessionStore;
+import io.github.sidneyroberto9.sentret.store.JdbcSentretSessionStore;
 import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
-import jakarta.persistence.EntityManagerFactory;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
-import org.springframework.boot.autoconfigure.AutoConfigurationPackage;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.autoconfigure.data.jpa.JpaRepositoriesAutoConfiguration;
-import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -26,6 +20,7 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -40,12 +35,8 @@ import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import java.util.ArrayList;
 import java.util.List;
 
-@AutoConfiguration(
-        before = JpaRepositoriesAutoConfiguration.class,
-        after = HibernateJpaAutoConfiguration.class
-)
-@AutoConfigurationPackage(basePackageClasses = SentretSession.class)
-@ConditionalOnClass({EntityManagerFactory.class, SecurityFilterChain.class})
+@AutoConfiguration
+@ConditionalOnClass({JdbcTemplate.class, SecurityFilterChain.class})
 @ConditionalOnProperty(prefix = "sentret", name = "enabled", matchIfMissing = true)
 @EnableConfigurationProperties(SentretProperties.class)
 @Import(SentretWebMvcConfiguration.class)
@@ -65,8 +56,8 @@ public class SentretAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public SentretSessionStore sentretSessionStore(SentretSessionRepository repository) {
-        return new JpaSentretSessionStore(repository);
+    public SentretSessionStore sentretSessionStore(JdbcTemplate jdbcTemplate) {
+        return new JdbcSentretSessionStore(jdbcTemplate);
     }
 
     @Bean

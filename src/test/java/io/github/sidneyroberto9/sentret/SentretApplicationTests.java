@@ -1,13 +1,14 @@
 package io.github.sidneyroberto9.sentret;
 
-import io.github.sidneyroberto9.sentret.domain.SentretSessionRepository;
 import io.github.sidneyroberto9.sentret.sample.SampleApplication;
+import io.github.sidneyroberto9.sentret.service.SentretService;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -34,22 +35,23 @@ class SentretApplicationTests {
     private WebApplicationContext context;
 
     @Autowired
-    private SentretSessionRepository sessionRepository;
+    private JdbcTemplate jdbc;
+
+    @Autowired
+    private SentretService sentretService;
 
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.webAppContextSetup(context).apply(springSecurity()).build();
-        sessionRepository.deleteAll();
+        jdbc.update("DELETE FROM sentret_sessions");
     }
 
     private Cookie login(String userId, String email) throws Exception {
-        return loginWithBody("{\"userId\":\"" + userId + "\",\"email\":\"" + email + "\"}");
-    }
-
-    private Cookie loginWithBody(String json) throws Exception {
-        MvcResult result = mockMvc.perform(post("/login").contentType(MediaType.APPLICATION_JSON).content(json))
+        MvcResult result = mockMvc.perform(post("/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"" + userId + "\",\"email\":\"" + email + "\"}"))
                 .andExpect(status().isOk())
                 .andReturn();
 
@@ -59,10 +61,12 @@ class SentretApplicationTests {
     }
 
     private void expire(String sessionId) {
-        sessionRepository.findBySessionId(sessionId).ifPresent(session -> {
-            session.setExpiresAt(Instant.now().minusSeconds(60));
-            sessionRepository.save(session);
-        });
+        jdbc.update("UPDATE sentret_sessions SET expires_at = ? WHERE session_id = ?",
+                Instant.now().minusSeconds(60).toEpochMilli(), sessionId);
+    }
+
+    private int sessionCount(String sessionId) {
+        return jdbc.queryForObject("SELECT COUNT(*) FROM sentret_sessions WHERE session_id = ?", Integer.class, sessionId);
     }
 
     @Test
@@ -108,10 +112,14 @@ class SentretApplicationTests {
         login("x", "x@x.com");
     }
 
+    /** A forged or oversized cookie must end in a clean 401, never in a database error. */
     @Test
-    void meWithTamperedCookieReturns401() throws Exception {
-        mockMvc.perform(get("/me").cookie(new Cookie("SENTRETSID", "tampered-session-id-that-does-not-exist")))
-                .andExpect(status().isUnauthorized());
+    void meWithTamperedCookieReturns401AndClearsCookie() throws Exception {
+        MvcResult result = mockMvc.perform(get("/me").cookie(new Cookie("SENTRETSID", "x".repeat(100))))
+                .andExpect(status().isUnauthorized())
+                .andReturn();
+
+        assertThat(result.getResponse().getHeader("Set-Cookie")).contains("Max-Age=0");
     }
 
     @Test
@@ -126,11 +134,10 @@ class SentretApplicationTests {
     void cleanupRemovesExpiredSessions() throws Exception {
         Cookie cookie = login("user3", "user3@test.com");
         expire(cookie.getValue());
-        assertThat(sessionRepository.count()).isEqualTo(1);
 
-        sessionRepository.deleteByExpiresAtBefore(Instant.now());
+        sentretService.deleteExpired();
 
-        assertThat(sessionRepository.count()).isZero();
+        assertThat(sessionCount(cookie.getValue())).isZero();
     }
 
     /**
@@ -163,14 +170,13 @@ class SentretApplicationTests {
     @Test
     void logoutClearsCookieAndSession() throws Exception {
         Cookie cookie = login("user6", "user6@test.com");
-        assertThat(sessionRepository.findBySessionId(cookie.getValue())).isPresent();
+        assertThat(sessionCount(cookie.getValue())).isOne();
 
         MvcResult result = mockMvc.perform(post("/logout").cookie(cookie))
                 .andExpect(status().isNoContent())
                 .andReturn();
 
         assertThat(result.getResponse().getHeader("Set-Cookie")).containsIgnoringCase("Max-Age=0");
-        assertThat(sessionRepository.findBySessionId(cookie.getValue())).isEmpty();
+        assertThat(sessionCount(cookie.getValue())).isZero();
     }
-
 }

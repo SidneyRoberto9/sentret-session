@@ -38,40 +38,8 @@ public class SentretProperties {
 
 
     /**
-     * Whether to update the last-accessed timestamp when activity is signalled. Since 2.1.1 the
-     * only activity signal is {@code POST /session/heartbeat} (which the frontend client fires from
-     * real DOM events): validation alone does not count, or the client's own {@code /status} poll
-     * would keep every session alive forever and {@link #maxIdle} could never elapse.
-     */
-    private boolean updateLastAccessed = true;
-
-    /**
-     * @deprecated Since 2.1.2 this has no effect. It used to throttle last-accessed writes back when
-     * every authenticated request touched the session. Now only {@code POST /session/heartbeat}
-     * does, and the client already throttles that to {@link #heartbeatInterval} — so throttling
-     * again here only discarded real activity and logged active users out. Kept so existing
-     * configuration keeps binding; remove it from your properties.
-     */
-    @Deprecated(since = "2.1.2", forRemoval = true)
-    private Duration lastAccessedThrottle = Duration.ofMinutes(5);
-
-    /**
-     * Slide the expiration forward on activity (bounded by the same throttle as last-accessed).
-     * "Activity" means a heartbeat — see {@link #updateLastAccessed}.
-     */
-    private boolean slidingExpiration = false;
-
-    /**
-     * Maximum inactivity window before a session is considered idle-expired, evaluated in
-     * {@code validate()} against {@code lastAccessedAt}. {@code null} or {@link Duration#ZERO}
-     * disables idle enforcement (default), preserving pre-2.1 behavior.
-     *
-     * <p>Requires an activity signal to be useful: {@code lastAccessedAt} only moves on
-     * {@code POST /session/heartbeat} (see {@link #updateLastAccessed}). Enable this only for apps
-     * running the frontend client, or send the heartbeat yourself. Keep {@link #heartbeatInterval}
-     * well below this value — the client throttles heartbeats to that interval, so an interval
-     * close to {@code maxIdle} logs active users out. The library warns at startup when they are
-     * too close, or when {@link #warningBefore} is {@code >= maxIdle}.
+     * Inactivity window, measured from the last heartbeat. {@code null}, zero or negative disables
+     * it. Keep {@link #heartbeatInterval} well below it.
      */
     private Duration maxIdle = Duration.ZERO;
 
@@ -148,4 +116,8 @@ public class SentretProperties {
      */
     private String endpointsBasePath = "/session";
 
+    /** Whether {@link #maxIdle} is enforced: {@code null}, zero or negative disables it. */
+    public boolean isIdleEnabled() {
+        return maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
+    }
 }

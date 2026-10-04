@@ -60,9 +60,7 @@ public class SentretSessionController {
             return ResponseEntity.ok(buildStatus(null));
         }
 
-        sessionService.touch(user.sessionId());
-
-        return ResponseEntity.ok(buildStatus(user));
+        return ResponseEntity.ok(buildStatus(sessionService.touch(user)));
     }
 
     @PostMapping("/renew")
@@ -85,9 +83,7 @@ public class SentretSessionController {
             return anonymousStatus(config);
         }
 
-        return sessionService.remaining(user.sessionId())
-                .map(remaining -> authenticatedStatus(user, remaining, config))
-                .orElseGet(() -> anonymousStatus(config));
+        return authenticatedStatus(user, sessionService.remaining(user), config);
     }
 
     private SessionStatusResponse authenticatedStatus(SentretUser user, SentretSessionRemaining remaining, SessionStatusResponse.Config config) {
