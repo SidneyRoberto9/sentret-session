@@ -1,6 +1,10 @@
 package io.github.sidneyroberto9.sentret.store;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.SmartInitializingSingleton;
+import org.springframework.dao.DataAccessException;
+import org.springframework.jdbc.BadSqlGrammarException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.core.RowMapper;
 
@@ -12,8 +16,9 @@ import java.util.Optional;
  * operation is a single statement, so no transaction is needed. Times are stored as epoch
  * milliseconds (see {@code db/sentret-schema.sql}).
  */
+@Slf4j
 @RequiredArgsConstructor
-public class JdbcSentretSessionStore implements SentretSessionStore {
+public class JdbcSentretSessionStore implements SentretSessionStore, SmartInitializingSingleton {
 
     private static final String COLUMNS = "session_id, user_id, email, created_at, expires_at, last_accessed_at";
 
@@ -26,6 +31,24 @@ public class JdbcSentretSessionStore implements SentretSessionStore {
             Instant.ofEpochMilli(rs.getLong("last_accessed_at")));
 
     private final JdbcTemplate jdbc;
+
+    /**
+     * Runs once the context is up (after schema initializers such as spring.sql.init or Flyway).
+     * A missing table only shows up as failed logins otherwise, so it is reported here. Never stops
+     * the startup: a database that is down right now is only logged.
+     */
+    @Override
+    public void afterSingletonsInstantiated() {
+        try {
+            jdbc.query("SELECT session_id FROM sentret_sessions WHERE 1 = 0", rs -> {
+            });
+        } catch (BadSqlGrammarException e) {
+            log.error("[sentret] Table sentret_sessions not found: every login will fail until it exists. "
+                    + "Create it with db/sentret-schema.sql (shipped in the jar, see README).");
+        } catch (DataAccessException e) {
+            log.warn("[sentret] Could not check the sentret_sessions table at startup: {}", e.getMessage());
+        }
+    }
 
     @Override
     public void insert(SentretSession session) {

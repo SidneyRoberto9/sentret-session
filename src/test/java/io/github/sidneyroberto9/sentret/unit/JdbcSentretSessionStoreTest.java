@@ -2,6 +2,10 @@ package io.github.sidneyroberto9.sentret.unit;
 
 import io.github.sidneyroberto9.sentret.store.JdbcSentretSessionStore;
 import io.github.sidneyroberto9.sentret.store.SentretSession;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,6 +13,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabase;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
+import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 
@@ -134,5 +139,41 @@ class JdbcSentretSessionStoreTest {
 
         assertThat(store.findBySessionId("old")).isEmpty();
         assertThat(store.findBySessionId("live")).isPresent();
+    }
+
+    /** Logins fail until the table exists; say so at startup instead of only with a 500 on login. */
+    @Test
+    void startupReportsAMissingTable() {
+        EmbeddedDatabase empty = new EmbeddedDatabaseBuilder().setType(EmbeddedDatabaseType.H2).generateUniqueName(true).build();
+        Logger logger = (Logger) LoggerFactory.getLogger(JdbcSentretSessionStore.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            new JdbcSentretSessionStore(new JdbcTemplate(empty)).afterSingletonsInstantiated();
+        } finally {
+            logger.detachAppender(appender);
+            empty.shutdown();
+        }
+
+        assertThat(appender.list)
+                .anyMatch(event -> event.getLevel() == Level.ERROR && event.getFormattedMessage().contains("sentret_sessions"));
+    }
+
+    @Test
+    void startupIsQuietWhenTheTableExists() {
+        Logger logger = (Logger) LoggerFactory.getLogger(JdbcSentretSessionStore.class);
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        logger.addAppender(appender);
+
+        try {
+            store.afterSingletonsInstantiated();
+        } finally {
+            logger.detachAppender(appender);
+        }
+
+        assertThat(appender.list).isEmpty();
     }
 }
