@@ -193,6 +193,8 @@ public class SecurityConfig {
   usuários logados mantêm o status.)
 - **`FilterRegistrationBean` desligado:** opcional. Sem ele o filtro também roda como filtro comum do
   servlet, o que é inofensivo (ele não processa a mesma request duas vezes).
+- **Com o client npm e CSRF:** isente também o `appLogoutUrl` (o client chama sem o token). Na
+  cadeia padrão isso é `sentret.csrf-ignored-paths`.
 - **Com o hub ligado:** libere `GET {hub.base-path}/status`; se usar CSRF, isente
   `{hub.base-path}/heartbeat` e `{hub.base-path}/renew` (o client npm não manda o header).
 

@@ -122,4 +122,6 @@ liberados, sem sessão válida eles respondem 401 do mesmo jeito).
   `Secure`. Com `csrf-enabled`, o front só consegue ler o cookie `XSRF-TOKEN` se UI e API dividirem
   um domínio (`sentret.cookie-domain`).
 - **CSRF com o hub:** com `csrf-enabled=true`, a cadeia padrão isenta `heartbeat` e `renew`, que o
-  client envia sem header de CSRF. Forjar um deles só mantém viva uma sessão que já existe.
+  client envia sem header de CSRF. O client também chama o `appLogoutUrl` da app sem o token: isente
+  esse caminho com `sentret.csrf-ignored-paths` (ou na sua cadeia), senão o logout dá 403 e a sessão
+  da app sobrevive. Forjar um deles só mantém viva uma sessão que já existe.
