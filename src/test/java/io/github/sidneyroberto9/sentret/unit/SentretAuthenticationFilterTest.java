@@ -45,6 +45,7 @@ class SentretAuthenticationFilterTest {
     void setUp() {
         SentretProperties properties = new SentretProperties();
         properties.setMaxIdle(Duration.ofMinutes(2));
+        properties.getHub().setEnabled(true);
         store = mock(SentretSessionStore.class);
         cookieManager = new SentretCookieManager(properties);
         SentretService service = new SentretService(store, properties, mock(ApplicationEventPublisher.class), cookieManager);

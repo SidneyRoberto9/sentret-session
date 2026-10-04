@@ -79,7 +79,7 @@ Tempos em epoch millis (`BIGINT`). No Java a linha é o record `SentretSession`.
 Para cada request com cookie:
 
 1. Um `SELECT` pelo `session_id`.
-2. Sessão válida quando existe, `expires_at` não passou e — com `max-idle` ligado —
+2. Sessão válida quando existe, `expires_at` não passou e — com o hub e `max-idle` ligados —
    `last_accessed_at + max-idle` não passou.
 3. **Válida:** coloca um `SentretUser` (com `expiresAt` e `lastAccessedAt`) no `SecurityContext`,
    sem authorities.
@@ -101,6 +101,8 @@ eventos reais do usuário (mouse, teclado, scroll):
 - **Sem throttle no servidor:** o client já limita os heartbeats a `hub.heartbeat-interval`;
   descartar um aqui faria um usuário ativo ser deslogado.
 - Com `max-idle=0`, o heartbeat não grava nada.
+- Sem o hub ligado, ninguém manda heartbeat: por isso `max-idle` só é aplicado com
+  `sentret.hub.enabled=true`, e sem hub vale apenas o `ttl`.
 
 ---
 

@@ -79,7 +79,7 @@ Nothing is required.
 |---|---|---|
 | `enabled` | `true` | Turn the library off. |
 | `ttl` | `8h` | Absolute session lifetime. |
-| `max-idle` | `30m` | Inactivity window, reset only by the hub heartbeat. `0` disables it. |
+| `max-idle` | `30m` | Inactivity window, reset only by the hub heartbeat. Enforced only with `hub.enabled=true`; `0` disables it. |
 | `cookie-name` | `SENTRETSID` | Use `__Host-SID` to harden the cookie. |
 | `cookie-secure` | `true` | `false` only for local HTTP. |
 | `cookie-same-site` | `Lax` | |

@@ -33,7 +33,9 @@ class SentretSecurityValidatorTest {
         logger.detachAppender(appender);
     }
 
+    /** The timing checks are about the hub, so every case runs with it on. */
     private void validate(SentretProperties properties) {
+        properties.getHub().setEnabled(true);
         new SentretSecurityValidator(properties).afterPropertiesSet();
     }
 

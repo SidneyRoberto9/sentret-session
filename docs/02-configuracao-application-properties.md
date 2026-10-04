@@ -11,7 +11,7 @@ configuração.
 |---|---|---|---|
 | `sentret.enabled` | `boolean` | `true` | Desliga a lib inteira. |
 | `sentret.ttl` | `Duration` | `8h` | Tempo de vida absoluto da sessão. |
-| `sentret.max-idle` | `Duration` | `30m` | Janela de inatividade, renovada **só** pelo heartbeat do hub. `0` desliga. |
+| `sentret.max-idle` | `Duration` | `30m` | Janela de inatividade, renovada **só** pelo heartbeat do hub. **Só é aplicada com `hub.enabled=true`** (sem hub ninguém manda heartbeat; vale só o `ttl`). `0` desliga. |
 | `sentret.cookie-name` | `String` | `SENTRETSID` | Nome do cookie. Use `__Host-SID` para endurecer o cookie. |
 | `sentret.cookie-secure` | `boolean` | `true` | Cookie só em HTTPS. `false` apenas em dev local sobre HTTP. |
 | `sentret.cookie-same-site` | `String` | `Lax` | `Lax`, `Strict` ou `None`. |

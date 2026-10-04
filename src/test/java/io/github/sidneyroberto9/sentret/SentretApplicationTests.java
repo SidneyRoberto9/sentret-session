@@ -139,6 +139,19 @@ class SentretApplicationTests {
         assertThat(sessionCount(old.getValue())).isZero();
     }
 
+    /**
+     * Without the hub nothing sends heartbeats, so max-idle cannot be measured: enforcing it would
+     * log every active user out max-idle after login. Only the absolute ttl applies.
+     */
+    @Test
+    void sessionWithoutTheHubIsNotCutByMaxIdle() throws Exception {
+        Cookie cookie = login("user8", "user8@test.com");
+        jdbc.update("UPDATE sentret_sessions SET last_accessed_at = ? WHERE session_id = ?",
+                Instant.now().minusSeconds(31 * 60).toEpochMilli(), cookie.getValue());
+
+        mockMvc.perform(get("/me").cookie(cookie)).andExpect(status().isOk());
+    }
+
     @Test
     void corsIsOffWhenNoOriginIsConfigured() throws Exception {
         mockMvc.perform(options("/login")

@@ -29,7 +29,7 @@ Criar a tabela nova com `db/sentret-schema.sql` (ver README). A antiga pode ser 
 | `cors-enabled`, `cors-allowed-methods`, `cors-allow-credentials` | removidas: CORS liga sozinho com `cors-allowed-origins` |
 | `cleanup-enabled`, `cleanup-cron` | removidas: limpeza acontece no login |
 | `logout-url`, `redirect-after-expiry-url` | removidas: use `hub.login-url` |
-| `max-idle` padrão `0` | padrão agora é `30m` |
+| `max-idle` padrão `0` | padrão agora é `30m`, aplicado **só com `hub.enabled=true`**; sem hub vale apenas o `ttl` |
 
 ## 4. Código
 

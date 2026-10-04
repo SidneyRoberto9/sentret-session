@@ -22,8 +22,10 @@ public class SentretProperties {
     private Duration ttl = Duration.ofHours(8);
 
     /**
-     * Inactivity window, measured from the last heartbeat. {@code null}, zero or negative disables
-     * it. Keep {@code hub.heartbeat-interval} well below it.
+     * Inactivity window, measured from the last hub heartbeat. Only enforced with
+     * {@code hub.enabled=true}: without the hub nothing sends heartbeats, so only {@link #ttl}
+     * applies. {@code null}, zero or negative disables it. Keep {@code hub.heartbeat-interval} well
+     * below it.
      */
     private Duration maxIdle = Duration.ofMinutes(30);
 
@@ -48,9 +50,12 @@ public class SentretProperties {
 
     private final Hub hub = new Hub();
 
-    /** Whether {@link #maxIdle} is enforced: {@code null}, zero or negative disables it. */
+    /**
+     * Whether {@link #maxIdle} is enforced: only with the hub on (the heartbeat is the only activity
+     * signal) and a positive window.
+     */
     public boolean isIdleEnabled() {
-        return maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
+        return hub.isEnabled() && maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
     }
 
     /**

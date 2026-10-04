@@ -25,6 +25,7 @@ class SentretHubStatusServiceTest {
     void setUp() {
         properties = new SentretProperties();
         properties.setMaxIdle(Duration.ofMinutes(10));
+        properties.getHub().setEnabled(true);
         properties.getHub().setLoginUrl("https://login.example.com");
         service = new SentretHubStatusService(properties);
     }

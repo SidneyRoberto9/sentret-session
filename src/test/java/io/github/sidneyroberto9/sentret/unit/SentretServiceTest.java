@@ -51,6 +51,7 @@ class SentretServiceTest {
     void setUp() {
         properties = new SentretProperties();
         properties.setMaxIdle(Duration.ofMinutes(10));
+        properties.getHub().setEnabled(true);
         store = mock(SentretSessionStore.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
         cookieManager = new SentretCookieManager(properties);
