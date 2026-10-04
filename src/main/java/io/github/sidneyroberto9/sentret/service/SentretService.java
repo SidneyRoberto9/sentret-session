@@ -7,19 +7,27 @@ import io.github.sidneyroberto9.sentret.event.SentretSessionDestroyedEvent;
 import io.github.sidneyroberto9.sentret.event.SentretSessionRenewedEvent;
 import io.github.sidneyroberto9.sentret.security.SentretUser;
 import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
-import io.github.sidneyroberto9.sentret.util.NanoId;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.security.SecureRandom;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.Base64;
 import java.util.Optional;
 
 @RequiredArgsConstructor
 public class SentretService {
+
+    private static final SecureRandom RANDOM = new SecureRandom();
+    private static final Base64.Encoder SESSION_ID_ENCODER = Base64.getUrlEncoder().withoutPadding();
+
+    /** 15 bytes = 120 random bits = exactly 20 Base64 URL characters, no padding. */
+    private static final int SESSION_ID_BYTES = 15;
+
     private final SentretSessionStore store;
     private final SentretProperties properties;
     private final ApplicationEventPublisher eventPublisher;
@@ -30,7 +38,7 @@ public class SentretService {
         Instant now = Instant.now();
 
         SentretSession session = new SentretSession();
-        session.setSessionId(NanoId.generate(properties.getSessionIdLength()));
+        session.setSessionId(newSessionId());
         session.setUserId(userId);
         session.setEmail(email);
         session.setCreatedAt(now);
@@ -230,6 +238,12 @@ public class SentretService {
     private boolean isIdleEnabled() {
         Duration maxIdle = properties.getMaxIdle();
         return maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
+    }
+
+    private static String newSessionId() {
+        byte[] bytes = new byte[SESSION_ID_BYTES];
+        RANDOM.nextBytes(bytes);
+        return SESSION_ID_ENCODER.encodeToString(bytes);
     }
 
     private SentretUser toUser(SentretSession session) {

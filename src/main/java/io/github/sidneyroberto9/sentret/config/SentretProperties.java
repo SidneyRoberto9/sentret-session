@@ -34,8 +34,6 @@ public class SentretProperties {
      */
     private String cookiePrefix = "";
 
-    private int sessionIdLength = 21;
-
 
 
 

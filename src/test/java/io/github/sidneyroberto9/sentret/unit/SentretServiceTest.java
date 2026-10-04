@@ -18,7 +18,9 @@ import org.springframework.mock.web.MockHttpServletResponse;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.Optional;
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -59,6 +61,17 @@ class SentretServiceTest {
 
     // --- login(): 4-arg overload delegates to the 5-arg one with no roles ---
 
+
+    @Test
+    void loginGeneratesTwentyCharUrlSafeUniqueSessionIds() {
+        Set<String> ids = new HashSet<>();
+
+        for (int i = 0; i < 1_000; i++) {
+            ids.add(service.login("user-1", "user@test.com", new MockHttpServletResponse()).sessionId());
+        }
+
+        assertThat(ids).hasSize(1_000).allMatch(id -> id.matches("[A-Za-z0-9_-]{20}"));
+    }
 
     // --- logoutAll() ---
 
