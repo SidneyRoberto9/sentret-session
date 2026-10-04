@@ -40,7 +40,7 @@ A versão segue `MAJOR.MINOR.PATCH`:
 ## 3. Passo a passo
 
 ```bash
-cd /home/sid/www/personal/spring-lite-session
+cd /home/sid/www/personal/sentret-session
 ```
 
 ### 3.1. Faça e valide as alterações de código
@@ -174,7 +174,7 @@ Quando estiver tudo certo, aí sim faz o `deploy` para o Central.
 ## 6. Resumo (TL;DR)
 
 ```bash
-cd /home/sid/www/personal/spring-lite-session
+cd /home/sid/www/personal/sentret-session
 rtk mvn clean test
 rtk mvn versions:set -DnewVersion=1.0.1 && rtk mvn versions:commit
 rtk mvn clean verify

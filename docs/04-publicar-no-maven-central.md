@@ -98,7 +98,7 @@ gpg --keyserver keys.openpgp.org      --send-keys C4D3857BBE0E26A8
 ## 3. Antes de publicar — checklist
 
 ```bash
-cd /home/sid/www/personal/spring-lite-session
+cd /home/sid/www/personal/sentret-session
 ```
 
 1. **Versão definida** no `pom.xml`. Para um release a versão **não** pode ser
@@ -218,7 +218,7 @@ Aí o `deploy` já solta direto no Central quando a validação passa.
 ```bash
 # uma vez: settings.xml com server 'central' + chave GPG no keyserver (já feito)
 
-cd /home/sid/www/personal/spring-lite-session
+cd /home/sid/www/personal/sentret-session
 rtk mvn clean test            # testes verdes
 rtk mvn clean verify          # confere jars + assinaturas em target/
 rtk mvn clean verify -Pboot4   # mesmo build contra o Spring Boot 4 (o clean é obrigatório ao trocar de profile)
