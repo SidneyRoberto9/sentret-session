@@ -116,8 +116,9 @@ public class SentretAutoConfiguration {
 
         if (properties.isCsrfEnabled()) {
             http.csrf(csrf -> csrf
-                    .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
-                    .csrfTokenRequestHandler(spaCsrfTokenRequestHandler()));
+                    .csrfTokenRepository(csrfTokenRepository(properties))
+                    .csrfTokenRequestHandler(spaCsrfTokenRequestHandler())
+                    .ignoringRequestMatchers(csrfExemptHubPaths(properties)));
         } else {
             http.csrf(AbstractHttpConfigurer::disable);
         }
@@ -129,6 +130,35 @@ public class SentretAutoConfiguration {
         }
 
         return http.build();
+    }
+
+    /**
+     * The XSRF-TOKEN cookie follows the session cookie's domain, SameSite and Secure, so a frontend
+     * on a sibling subdomain can read it and the browser sends it back on the same requests.
+     */
+    private static CookieCsrfTokenRepository csrfTokenRepository(SentretProperties properties) {
+        CookieCsrfTokenRepository repository = CookieCsrfTokenRepository.withHttpOnlyFalse();
+        repository.setCookieCustomizer(cookie -> {
+            cookie.sameSite(properties.getCookieSameSite()).secure(properties.isCookieSecure());
+
+            if (properties.getCookieDomain() != null) {
+                cookie.domain(properties.getCookieDomain());
+            }
+        });
+        return repository;
+    }
+
+    /**
+     * The npm client sends heartbeat and renew without a CSRF header. A forged one can only keep an
+     * existing session alive, so they are exempt; everything else still needs the token.
+     */
+    private static String[] csrfExemptHubPaths(SentretProperties properties) {
+        if (!properties.getHub().isEnabled()) {
+            return new String[0];
+        }
+
+        String basePath = properties.getHub().getBasePath();
+        return new String[]{basePath + "/heartbeat", basePath + "/renew"};
     }
 
     /**

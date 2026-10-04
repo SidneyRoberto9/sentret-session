@@ -22,8 +22,10 @@ public class SentretSecurityValidator implements InitializingBean {
         Duration maxIdle = properties.getMaxIdle();
 
         if ("None".equalsIgnoreCase(properties.getCookieSameSite()) && !properties.isCsrfEnabled()) {
-            log.warn("[sentret] 'cookie-same-site=None' with CSRF disabled is unsafe for cookie-based auth. "
-                    + "Enable 'sentret.csrf-enabled' or use SameSite=Lax/Strict.");
+            log.warn("[sentret] 'cookie-same-site=None' with CSRF disabled is unsafe for cookie-based auth. Prefer "
+                    + "SameSite=Lax (frontend and API on the same site, subdomains included). With SameSite=None, enable "
+                    + "'sentret.csrf-enabled' and set 'sentret.cookie-domain' to the domain both share, so the frontend "
+                    + "can read the XSRF-TOKEN cookie.");
         }
 
         if ("None".equalsIgnoreCase(properties.getCookieSameSite()) && !properties.isCookieSecure()) {
