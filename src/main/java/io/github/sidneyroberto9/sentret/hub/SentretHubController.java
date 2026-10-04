@@ -37,6 +37,10 @@ public class SentretHubController {
     /** The only user-activity signal: the client sends it from real DOM events. */
     @PostMapping("/heartbeat")
     public ResponseEntity<SessionStatusResponse> heartbeat(@AuthenticationPrincipal SentretUser user) {
+        if (user == null) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
         SentretUser touched = sessionService.touch(user);
         return ResponseEntity.status(HttpStatus.OK).body(statusService.status(touched));
     }

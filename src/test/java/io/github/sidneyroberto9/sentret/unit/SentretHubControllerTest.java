@@ -19,6 +19,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class SentretHubControllerTest {
@@ -63,6 +64,16 @@ class SentretHubControllerTest {
         verify(sessionService).touch(USER);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(authenticated());
+    }
+
+    /** An app with its own chain may leave heartbeat permit-all: no principal must be a 401, not a 500. */
+    @Test
+    void heartbeatWithoutPrincipalReturns401WithoutTouching() {
+        ResponseEntity<SessionStatusResponse> response = controller.heartbeat(null);
+
+        assertThat(response.getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+        assertThat(response.getBody()).isNull();
+        verifyNoInteractions(sessionService);
     }
 
     @Test

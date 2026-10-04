@@ -87,7 +87,8 @@ sentret.hub.login-url=https://login.exemplo.com
 ```
 
 Com a cadeia padrão da lib, `GET {base-path}/status` já fica liberado. Com `SecurityFilterChain`
-própria, libere esse caminho você mesmo.
+própria, libere **só** o `status`; `heartbeat` e `renew` devem exigir autenticação (se ficarem
+liberados, sem sessão válida eles respondem 401 do mesmo jeito).
 
 ### 3.2. Frontend (cada UI que reage à sessão do hub)
 
