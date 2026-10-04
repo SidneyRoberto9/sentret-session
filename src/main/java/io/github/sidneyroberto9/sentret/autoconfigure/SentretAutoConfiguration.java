@@ -12,6 +12,7 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnWebApplication;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 @AutoConfiguration
+@ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
 @ConditionalOnClass({JdbcTemplate.class, SecurityFilterChain.class})
 @ConditionalOnProperty(prefix = "sentret", name = "enabled", matchIfMissing = true)
 @EnableConfigurationProperties(SentretProperties.class)
@@ -48,7 +50,7 @@ public class SentretAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public SentretCookieManager cookieManager(SentretProperties properties) {
+    public SentretCookieManager sentretCookieManager(SentretProperties properties) {
         return new SentretCookieManager(properties);
     }
 
@@ -63,10 +65,10 @@ public class SentretAutoConfiguration {
     public SentretService sentretService(
             SentretProperties properties,
             SentretSessionStore store,
-            SentretCookieManager cookieManager,
+            SentretCookieManager sentretCookieManager,
             ApplicationEventPublisher eventPublisher
     ) {
-        return new SentretService(store, properties, eventPublisher, cookieManager);
+        return new SentretService(store, properties, eventPublisher, sentretCookieManager);
     }
 
     @Bean
@@ -79,9 +81,9 @@ public class SentretAutoConfiguration {
     @ConditionalOnMissingBean
     public SentretAuthenticationFilter sentretAuthenticationFilter(
             SentretService sentretService,
-            SentretCookieManager cookieManager
+            SentretCookieManager sentretCookieManager
     ) {
-        return new SentretAuthenticationFilter(sentretService, cookieManager);
+        return new SentretAuthenticationFilter(sentretService, sentretCookieManager);
     }
 
     @Bean
