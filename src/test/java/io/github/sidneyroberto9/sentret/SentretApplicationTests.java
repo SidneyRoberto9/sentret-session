@@ -99,6 +99,26 @@ class SentretApplicationTests {
                 .andExpect(jsonPath("$.roles").doesNotExist());
     }
 
+    /**
+     * The session id is the HttpOnly cookie's value; serializing the principal must not hand it to
+     * JavaScript, whatever endpoint an application returns it from.
+     */
+    @Test
+    void principalJsonNeverCarriesTheSessionId() throws Exception {
+        mockMvc.perform(post("/login")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"user9\",\"email\":\"user9@test.com\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.userId").value("user9"))
+                .andExpect(jsonPath("$.sessionId").doesNotExist());
+
+        Cookie cookie = login("user9b", "user9b@test.com");
+
+        mockMvc.perform(get("/me").cookie(cookie))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sessionId").doesNotExist());
+    }
+
     @Test
     void meWithNoCookieReturns401WithoutBody() throws Exception {
         mockMvc.perform(get("/me"))
