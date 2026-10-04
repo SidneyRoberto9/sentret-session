@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InOrder;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.dao.QueryTimeoutException;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
 
@@ -28,6 +29,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -326,6 +328,18 @@ class SentretServiceTest {
         service.logoutAll("user-1");
 
         verify(store).deleteByUserId("user-1");
+    }
+
+    /** The purge is housekeeping: a lock timeout or deadlock there must not cost the user a login. */
+    @Test
+    void loginSucceedsEvenWhenThePurgeFails() {
+        doThrow(new QueryTimeoutException("lock wait timeout")).when(store).deleteExpired(any());
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        SentretUser user = service.login("user-1", "user@test.com", response);
+
+        verify(store).insert(any());
+        assertThat(response.getHeader("Set-Cookie")).contains(user.sessionId());
     }
 
     /** No scheduler: expired rows are purged on login, which is rare and hits the expires_at index. */

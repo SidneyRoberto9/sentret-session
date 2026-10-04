@@ -10,6 +10,7 @@ import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.ApplicationEventPublisher;
 
 import java.security.SecureRandom;
@@ -18,6 +19,7 @@ import java.util.Base64;
 import java.util.Optional;
 import java.util.regex.Pattern;
 
+@Slf4j
 @RequiredArgsConstructor
 public class SentretService {
 
@@ -37,7 +39,7 @@ public class SentretService {
 
     public SentretUser login(String userId, String email, HttpServletResponse response) {
         Instant now = Instant.now();
-        store.deleteExpired(now);
+        purgeExpired(now);
         SentretSession session = new SentretSession(newSessionId(), userId, email, now, now.plus(properties.getTtl()), now);
 
         store.insert(session);
@@ -133,6 +135,18 @@ public class SentretService {
 
     private boolean isIdleExpired(Instant lastAccessedAt, Instant now) {
         return properties.isIdleEnabled() && lastAccessedAt.plus(properties.getMaxIdle()).isBefore(now);
+    }
+
+    /**
+     * Housekeeping only: a failure here (lock timeout, deadlock under concurrent logins) is logged
+     * and the login goes on. Expired rows are rejected by {@link #validate} anyway.
+     */
+    private void purgeExpired(Instant now) {
+        try {
+            store.deleteExpired(now);
+        } catch (RuntimeException e) {
+            log.warn("[sentret] Could not purge expired sessions; the login proceeds.", e);
+        }
     }
 
     private static String newSessionId() {
