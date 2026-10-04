@@ -55,7 +55,8 @@ public class SentretProperties {
      */
     private List<String> corsAllowedOrigins = new ArrayList<>();
 
-    private List<String> permitAllPaths = new ArrayList<>(List.of("/login", "/auth/**", "/public/**"));
+    /** Public paths of the default chain. The health endpoint stays public for readiness/liveness probes. */
+    private List<String> permitAllPaths = new ArrayList<>(List.of("/login", "/auth/**", "/public/**", "/actuator/health/**"));
 
     private final Hub hub = new Hub();
 

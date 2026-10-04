@@ -31,6 +31,7 @@ class SentretPropertiesTest {
         assertThat(properties.getCorsAllowedOrigins()).isEmpty();
         assertThat(properties.getHub().isEnabled()).isFalse();
         assertThat(properties.getHub().getBasePath()).isEqualTo("/session");
+        assertThat(properties.getPermitAllPaths()).contains("/actuator/health/**");
     }
 
     @Test

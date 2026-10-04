@@ -172,6 +172,14 @@ class SentretApplicationTests {
         mockMvc.perform(get("/me").cookie(cookie)).andExpect(status().isOk());
     }
 
+    /** Readiness/liveness probes call the health endpoint anonymously; the default chain must let it through. */
+    @Test
+    void healthProbePathIsNotBehindTheSession() throws Exception {
+        int status = mockMvc.perform(get("/actuator/health")).andReturn().getResponse().getStatus();
+
+        assertThat(status).isNotEqualTo(401);
+    }
+
     @Test
     void corsIsOffWhenNoOriginIsConfigured() throws Exception {
         mockMvc.perform(options("/login")
