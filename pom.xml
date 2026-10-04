@@ -16,7 +16,7 @@
         Lightweight cookie-based session authentication starter for Spring Boot
     </description>
 
-    <url>https://github.com/sidneyroberto9/spring-session-lite</url>
+    <url>https://github.com/sidneyroberto9/sentret-session</url>
 
     <licenses>
         <license>
@@ -34,9 +34,9 @@
     </developers>
 
     <scm>
-        <connection>scm:git:git://github.com/sidneyroberto9/spring-session-lite.git</connection>
-        <developerConnection>scm:git:ssh://github.com/sidneyroberto9/spring-session-lite.git</developerConnection>
-        <url>https://github.com/sidneyroberto9/spring-session-lite</url>
+        <connection>scm:git:git://github.com/sidneyroberto9/sentret-session.git</connection>
+        <developerConnection>scm:git:ssh://github.com/sidneyroberto9/sentret-session.git</developerConnection>
+        <url>https://github.com/sidneyroberto9/sentret-session</url>
     </scm>
 
     <properties>
