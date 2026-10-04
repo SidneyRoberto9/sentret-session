@@ -2,7 +2,6 @@ package io.github.sidneyroberto9.sentret.autoconfigure;
 
 import io.github.sidneyroberto9.sentret.config.SentretProperties;
 import io.github.sidneyroberto9.sentret.config.SentretSecurityValidator;
-import io.github.sidneyroberto9.sentret.scheduler.SentretCleanupTask;
 import io.github.sidneyroberto9.sentret.security.SentretAuthenticationFilter;
 import io.github.sidneyroberto9.sentret.service.SentretCookieManager;
 import io.github.sidneyroberto9.sentret.service.SentretService;
@@ -16,9 +15,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
-import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -140,17 +137,5 @@ public class SentretAutoConfiguration {
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);
         return source;
-    }
-
-    @Configuration(proxyBeanMethods = false)
-    @ConditionalOnProperty(prefix = "sentret", name = "cleanup-enabled", matchIfMissing = true)
-    @EnableScheduling
-    static class CleanupConfiguration {
-
-        @Bean
-        @ConditionalOnMissingBean
-        public SentretCleanupTask sentretCleanupTask(SentretService sentretService) {
-            return new SentretCleanupTask(sentretService);
-        }
     }
 }

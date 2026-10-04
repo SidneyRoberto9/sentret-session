@@ -34,6 +34,7 @@ public class SentretService {
 
     public SentretUser login(String userId, String email, HttpServletResponse response) {
         Instant now = Instant.now();
+        store.deleteExpired(now);
         SentretSession session = new SentretSession(newSessionId(), userId, email, now, now.plus(properties.getTtl()), now);
 
         store.insert(session);
@@ -95,10 +96,6 @@ public class SentretService {
 
     public void logoutAll(String userId) {
         store.deleteByUserId(userId);
-    }
-
-    public void deleteExpired() {
-        store.deleteExpired(Instant.now());
     }
 
     /** Resets both deadlines of a still-valid session. Never resurrects an expired one. */

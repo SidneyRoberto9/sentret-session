@@ -1,7 +1,6 @@
 package io.github.sidneyroberto9.sentret;
 
 import io.github.sidneyroberto9.sentret.sample.SampleApplication;
-import io.github.sidneyroberto9.sentret.service.SentretService;
 import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -9,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.scheduling.annotation.ScheduledAnnotationBeanPostProcessor;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
@@ -36,9 +36,6 @@ class SentretApplicationTests {
 
     @Autowired
     private JdbcTemplate jdbc;
-
-    @Autowired
-    private SentretService sentretService;
 
     private MockMvc mockMvc;
 
@@ -131,13 +128,22 @@ class SentretApplicationTests {
     }
 
     @Test
-    void cleanupRemovesExpiredSessions() throws Exception {
-        Cookie cookie = login("user3", "user3@test.com");
-        expire(cookie.getValue());
+    void loginPurgesExpiredSessions() throws Exception {
+        Cookie old = login("user3", "user3@test.com");
+        expire(old.getValue());
 
-        sentretService.deleteExpired();
+        login("user3b", "user3b@test.com");
 
-        assertThat(sessionCount(cookie.getValue())).isZero();
+        assertThat(sessionCount(old.getValue())).isZero();
+    }
+
+    /**
+     * The library used to put @EnableScheduling on the host application as a side effect. It must
+     * not: scheduling is the host application's decision.
+     */
+    @Test
+    void libraryDoesNotEnableSchedulingInTheHostApplication() {
+        assertThat(context.getBeanNamesForType(ScheduledAnnotationBeanPostProcessor.class)).isEmpty();
     }
 
     /**

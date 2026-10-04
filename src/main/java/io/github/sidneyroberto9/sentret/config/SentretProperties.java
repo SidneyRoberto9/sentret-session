@@ -95,12 +95,6 @@ public class SentretProperties {
 
     private boolean corsAllowCredentials = true;
 
-    /**
-     * Register the scheduled expired-session cleanup task.
-     */
-    private boolean cleanupEnabled = true;
-
-    private String cleanupCron = "0 */30 * * * *";
 
     private List<String> permitAllPaths = new ArrayList<>(List.of("/login", "/auth/**", "/public/**"));
 

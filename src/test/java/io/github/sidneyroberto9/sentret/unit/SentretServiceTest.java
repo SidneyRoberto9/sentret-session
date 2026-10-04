@@ -15,6 +15,7 @@ import org.assertj.core.data.Offset;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.mock.web.MockHttpServletRequest;
 import org.springframework.mock.web.MockHttpServletResponse;
@@ -28,6 +29,7 @@ import java.util.Set;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
@@ -345,10 +347,13 @@ class SentretServiceTest {
         verify(store).deleteByUserId("user-1");
     }
 
+    /** No scheduler: expired rows are purged on login, which is rare and hits the expires_at index. */
     @Test
-    void deleteExpiredDelegatesToStore() {
-        service.deleteExpired();
+    void loginPurgesExpiredSessionsBeforeInsertingTheNewOne() {
+        service.login("user-1", "user@test.com", new MockHttpServletResponse());
 
-        verify(store).deleteExpired(any());
+        InOrder order = inOrder(store);
+        order.verify(store).deleteExpired(any());
+        order.verify(store).insert(any());
     }
 }
