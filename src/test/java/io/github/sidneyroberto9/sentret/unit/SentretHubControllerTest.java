@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 
 import java.time.Instant;
+import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -54,7 +55,7 @@ class SentretHubControllerTest {
     @Test
     void heartbeatTouchesThenReportsTheRefreshedPrincipal() {
         SentretUser touched = new SentretUser("user-1", "user@test.com", "sid", USER.expiresAt(), Instant.parse("2030-01-01T00:00:00Z"));
-        when(sessionService.touch(USER)).thenReturn(touched);
+        when(sessionService.touch(USER)).thenReturn(Optional.of(touched));
         when(statusService.status(touched)).thenReturn(authenticated());
 
         ResponseEntity<SessionStatusResponse> response = controller.heartbeat(USER);
@@ -87,7 +88,7 @@ class SentretHubControllerTest {
     void renewReturnsTheRenewedStatus() {
         HttpServletResponse httpResponse = mock(HttpServletResponse.class);
         SentretUser renewed = new SentretUser("user-1", "user@test.com", "sid", Instant.parse("2030-01-01T08:00:00Z"), Instant.parse("2030-01-01T00:00:00Z"));
-        when(sessionService.renew(USER, httpResponse)).thenReturn(renewed);
+        when(sessionService.renew(USER, httpResponse)).thenReturn(Optional.of(renewed));
         when(statusService.status(renewed)).thenReturn(authenticated());
 
         ResponseEntity<SessionStatusResponse> response = controller.renew(USER, httpResponse);
@@ -95,5 +96,20 @@ class SentretHubControllerTest {
         verify(sessionService).renew(USER, httpResponse);
         assertThat(response.getStatusCode()).isEqualTo(HttpStatus.OK);
         assertThat(response.getBody()).isEqualTo(authenticated());
+    }
+
+    @Test
+    void heartbeatOfASessionDeletedMeanwhileReturns401() {
+        when(sessionService.touch(USER)).thenReturn(Optional.empty());
+
+        assertThat(controller.heartbeat(USER).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
+    }
+
+    @Test
+    void renewOfASessionDeletedMeanwhileReturns401() {
+        HttpServletResponse httpResponse = mock(HttpServletResponse.class);
+        when(sessionService.renew(USER, httpResponse)).thenReturn(Optional.empty());
+
+        assertThat(controller.renew(USER, httpResponse).getStatusCode()).isEqualTo(HttpStatus.UNAUTHORIZED);
     }
 }

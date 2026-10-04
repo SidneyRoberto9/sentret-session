@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.Optional;
 
 /**
  * Inactivity hub endpoints consumed by the @media4all/session-lite client. HTTP only: the rules
@@ -39,8 +40,13 @@ public class SentretHubController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        SentretUser touched = sessionService.touch(user);
-        return ResponseEntity.status(HttpStatus.OK).body(statusService.status(touched));
+        Optional<SentretUser> touched = sessionService.touch(user);
+
+        if (touched.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        return ResponseEntity.status(HttpStatus.OK).body(statusService.status(touched.get()));
     }
 
     @PostMapping("/renew")
@@ -49,7 +55,12 @@ public class SentretHubController {
             return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
 
-        SentretUser renewed = sessionService.renew(user, response);
-        return ResponseEntity.status(HttpStatus.OK).body(statusService.status(renewed));
+        Optional<SentretUser> renewed = sessionService.renew(user, response);
+
+        if (renewed.isEmpty()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+
+        return ResponseEntity.status(HttpStatus.OK).body(statusService.status(renewed.get()));
     }
 }

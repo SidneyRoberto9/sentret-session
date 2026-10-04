@@ -60,6 +60,8 @@ class SentretServiceTest {
         eventPublisher = mock(ApplicationEventPublisher.class);
         cookieManager = new SentretCookieManager(properties);
         service = new SentretService(store, properties, eventPublisher, cookieManager);
+        when(store.updateLastAccessedAt(any(), any())).thenReturn(true);
+        when(store.updateExpiresAt(any(), any(), any())).thenReturn(true);
     }
 
     private void stored(Instant expiresAt, Instant lastAccessedAt) {
@@ -214,7 +216,7 @@ class SentretServiceTest {
         Instant now = Instant.now();
         SentretUser user = user(now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(9)));
 
-        SentretUser touched = service.touch(user);
+        SentretUser touched = service.touch(user).orElseThrow();
 
         ArgumentCaptor<Instant> at = ArgumentCaptor.forClass(Instant.class);
         verify(store).updateLastAccessedAt(eq(SID), at.capture());
@@ -236,12 +238,20 @@ class SentretServiceTest {
         verify(store).updateLastAccessedAt(eq(SID), any());
     }
 
+    /** The row was deleted between the filter and the heartbeat (a concurrent logout): no session to touch. */
+    @Test
+    void touchOfASessionDeletedMeanwhileIsEmpty() {
+        when(store.updateLastAccessedAt(any(), any())).thenReturn(false);
+
+        assertThat(service.touch(user(Instant.now().plus(Duration.ofHours(1)), Instant.now()))).isEmpty();
+    }
+
     @Test
     void touchIsNoOpWhenIdleDisabled() {
         properties.setMaxIdle(Duration.ZERO);
         SentretUser user = user(Instant.now().plus(Duration.ofHours(1)), Instant.now());
 
-        assertThat(service.touch(user)).isSameAs(user);
+        assertThat(service.touch(user)).containsSame(user);
         verifyNoInteractions(store);
     }
 
@@ -271,6 +281,16 @@ class SentretServiceTest {
     }
 
     @Test
+    void renewOfASessionDeletedMeanwhileIsEmptyAndLeavesTheCookieAlone() {
+        when(store.updateExpiresAt(any(), any(), any())).thenReturn(false);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThat(service.renew(user(Instant.now().plus(Duration.ofHours(1)), Instant.now()), response)).isEmpty();
+        assertThat(response.getHeader("Set-Cookie")).isNull();
+        verifyNoInteractions(eventPublisher);
+    }
+
+    @Test
     void renewOfUnknownSessionReturnsEmptyAndPublishesNothing() {
         when(store.findBySessionId(UNKNOWN)).thenReturn(Optional.empty());
 
@@ -294,7 +314,7 @@ class SentretServiceTest {
         Instant now = Instant.now();
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        SentretUser renewed = service.renew(user(now.plus(Duration.ofMinutes(2)), now), response);
+        SentretUser renewed = service.renew(user(now.plus(Duration.ofMinutes(2)), now), response).orElseThrow();
 
         verify(store).updateExpiresAt(eq(SID), eq(renewed.expiresAt()), eq(renewed.lastAccessedAt()));
         verify(store, never()).findBySessionId(any());

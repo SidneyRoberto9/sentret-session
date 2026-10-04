@@ -66,17 +66,20 @@ public class SentretService {
     /**
      * Records real user activity (the hub heartbeat). One UPDATE, no re-read, no throttle: the
      * client already throttles heartbeats to heartbeat-interval, and dropping one here would discard
-     * the only activity signal there is.
+     * the only activity signal there is. Empty when the session was deleted after the filter ran.
      */
-    public SentretUser touch(SentretUser user) {
+    public Optional<SentretUser> touch(SentretUser user) {
         if (!properties.isIdleEnabled()) {
-            return user;
+            return Optional.of(user);
         }
 
         Instant now = Instant.now();
-        store.updateLastAccessedAt(user.sessionId(), now);
 
-        return new SentretUser(user.userId(), user.email(), user.sessionId(), user.expiresAt(), now);
+        if (!store.updateLastAccessedAt(user.sessionId(), now)) {
+            return Optional.empty();
+        }
+
+        return Optional.of(new SentretUser(user.userId(), user.email(), user.sessionId(), user.expiresAt(), now));
     }
 
     public void logout(HttpServletRequest request, HttpServletResponse response) {
@@ -106,16 +109,17 @@ public class SentretService {
 
     /** Resets both deadlines of a still-valid session. Never resurrects an expired one. */
     public Optional<SentretUser> renew(String sessionId) {
-        return validate(sessionId).map(this::extend);
+        return validate(sessionId).flatMap(this::extend);
     }
 
     /**
      * Renews the session of a principal the filter already validated (the hub renew), without
-     * reading the row again, and rewrites the cookie.
+     * reading the row again, and rewrites the cookie. Empty when the session was deleted after the
+     * filter ran.
      */
-    public SentretUser renew(SentretUser user, HttpServletResponse response) {
-        SentretUser renewed = extend(user);
-        cookieManager.write(response, renewed.sessionId());
+    public Optional<SentretUser> renew(SentretUser user, HttpServletResponse response) {
+        Optional<SentretUser> renewed = extend(user);
+        renewed.ifPresent(session -> cookieManager.write(response, session.sessionId()));
         return renewed;
     }
 
@@ -131,14 +135,16 @@ public class SentretService {
         return store.findBySessionId(sessionId).filter(session -> session.sessionId().equals(sessionId));
     }
 
-    private SentretUser extend(SentretUser user) {
+    private Optional<SentretUser> extend(SentretUser user) {
         Instant now = Instant.now();
         Instant expiresAt = now.plus(properties.getTtl());
 
-        store.updateExpiresAt(user.sessionId(), expiresAt, now);
-        eventPublisher.publishEvent(new SentretSessionRenewedEvent(user.userId(), user.sessionId(), now));
+        if (!store.updateExpiresAt(user.sessionId(), expiresAt, now)) {
+            return Optional.empty();
+        }
 
-        return new SentretUser(user.userId(), user.email(), user.sessionId(), expiresAt, now);
+        eventPublisher.publishEvent(new SentretSessionRenewedEvent(user.userId(), user.sessionId(), now));
+        return Optional.of(new SentretUser(user.userId(), user.email(), user.sessionId(), expiresAt, now));
     }
 
     private boolean isIdleExpired(Instant lastAccessedAt, Instant now) {

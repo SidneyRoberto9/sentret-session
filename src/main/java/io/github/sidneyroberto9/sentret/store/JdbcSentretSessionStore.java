@@ -46,15 +46,15 @@ public class JdbcSentretSessionStore implements SentretSessionStore {
     }
 
     @Override
-    public void updateLastAccessedAt(String sessionId, Instant lastAccessedAt) {
-        jdbc.update("UPDATE sentret_sessions SET last_accessed_at = ? WHERE session_id = ?",
-                lastAccessedAt.toEpochMilli(), sessionId);
+    public boolean updateLastAccessedAt(String sessionId, Instant lastAccessedAt) {
+        return jdbc.update("UPDATE sentret_sessions SET last_accessed_at = ? WHERE session_id = ?",
+                lastAccessedAt.toEpochMilli(), sessionId) > 0;
     }
 
     @Override
-    public void updateExpiresAt(String sessionId, Instant expiresAt, Instant lastAccessedAt) {
-        jdbc.update("UPDATE sentret_sessions SET expires_at = ?, last_accessed_at = ? WHERE session_id = ?",
-                expiresAt.toEpochMilli(), lastAccessedAt.toEpochMilli(), sessionId);
+    public boolean updateExpiresAt(String sessionId, Instant expiresAt, Instant lastAccessedAt) {
+        return jdbc.update("UPDATE sentret_sessions SET expires_at = ?, last_accessed_at = ? WHERE session_id = ?",
+                expiresAt.toEpochMilli(), lastAccessedAt.toEpochMilli(), sessionId) > 0;
     }
 
     @Override

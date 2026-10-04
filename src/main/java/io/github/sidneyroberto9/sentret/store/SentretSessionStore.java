@@ -13,9 +13,11 @@ public interface SentretSessionStore {
 
     Optional<SentretSession> findBySessionId(String sessionId);
 
-    void updateLastAccessedAt(String sessionId, Instant lastAccessedAt);
+    /** @return whether a session row was updated ({@code false} when it no longer exists) */
+    boolean updateLastAccessedAt(String sessionId, Instant lastAccessedAt);
 
-    void updateExpiresAt(String sessionId, Instant expiresAt, Instant lastAccessedAt);
+    /** @return whether a session row was updated ({@code false} when it no longer exists) */
+    boolean updateExpiresAt(String sessionId, Instant expiresAt, Instant lastAccessedAt);
 
     void deleteBySessionId(String sessionId);
 

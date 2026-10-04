@@ -74,7 +74,7 @@ class JdbcSentretSessionStoreTest {
     void updateLastAccessedAtChangesOnlyThatColumn() {
         store.insert(session("sid-1", "user-1", T0.plusSeconds(3600)));
 
-        store.updateLastAccessedAt("sid-1", T0.plusSeconds(60));
+        assertThat(store.updateLastAccessedAt("sid-1", T0.plusSeconds(60))).isTrue();
 
         SentretSession found = store.findBySessionId("sid-1").orElseThrow();
         assertThat(found.lastAccessedAt()).isEqualTo(T0.plusSeconds(60));
@@ -85,7 +85,7 @@ class JdbcSentretSessionStoreTest {
     void updateExpiresAtChangesExpiryAndLastAccess() {
         store.insert(session("sid-1", "user-1", T0.plusSeconds(60)));
 
-        store.updateExpiresAt("sid-1", T0.plusSeconds(7200), T0.plusSeconds(30));
+        assertThat(store.updateExpiresAt("sid-1", T0.plusSeconds(7200), T0.plusSeconds(30))).isTrue();
 
         SentretSession found = store.findBySessionId("sid-1").orElseThrow();
         assertThat(found.expiresAt()).isEqualTo(T0.plusSeconds(7200));
@@ -95,8 +95,8 @@ class JdbcSentretSessionStoreTest {
     /** A heartbeat or renew racing a logout hits a row that is already gone. */
     @Test
     void updatesOnMissingSessionAreNoOps() {
-        store.updateLastAccessedAt("gone", T0);
-        store.updateExpiresAt("gone", T0, T0);
+        assertThat(store.updateLastAccessedAt("gone", T0)).isFalse();
+        assertThat(store.updateExpiresAt("gone", T0, T0)).isFalse();
 
         assertThat(store.findBySessionId("gone")).isEmpty();
     }
