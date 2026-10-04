@@ -16,6 +16,7 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Optional;
+import java.util.regex.Pattern;
 
 @RequiredArgsConstructor
 public class SentretService {
@@ -25,6 +26,9 @@ public class SentretService {
 
     /** 15 bytes = 120 random bits = exactly 20 Base64 URL characters, no padding. */
     private static final int SESSION_ID_BYTES = 15;
+
+    /** Shape of every id {@link #newSessionId()} produces; anything else is rejected without a query. */
+    private static final Pattern SESSION_ID_FORMAT = Pattern.compile("[A-Za-z0-9_-]{20}");
 
     private final SentretSessionStore store;
     private final SentretProperties properties;
@@ -48,6 +52,10 @@ public class SentretService {
      * longer than max-idle. Read-only on purpose: validating is not activity (see {@link #touch}).
      */
     public Optional<SentretUser> validate(String sessionId) {
+        if (!SESSION_ID_FORMAT.matcher(sessionId).matches()) {
+            return Optional.empty();
+        }
+
         Instant now = Instant.now();
 
         return store.findBySessionId(sessionId)

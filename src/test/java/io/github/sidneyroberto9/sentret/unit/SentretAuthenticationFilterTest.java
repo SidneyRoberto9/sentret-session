@@ -37,6 +37,8 @@ import static org.mockito.Mockito.when;
  */
 class SentretAuthenticationFilterTest {
 
+    private static final String SID = "AbCdEfGhIjKlMnOpQr_-";
+
     private SentretSessionStore store;
     private SentretCookieManager cookieManager;
     private SentretAuthenticationFilter filter;
@@ -60,13 +62,13 @@ class SentretAuthenticationFilterTest {
     private void storedSessionIdleFor(Duration idle) {
         Instant now = Instant.now();
         SentretSession session = new SentretSession(
-                "sid", "user-1", "user@test.com", now.minus(Duration.ofHours(1)), now.plus(Duration.ofHours(1)), now.minus(idle));
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+                SID, "user-1", "user@test.com", now.minus(Duration.ofHours(1)), now.plus(Duration.ofHours(1)), now.minus(idle));
+        when(store.findBySessionId(SID)).thenReturn(Optional.of(session));
     }
 
     private MockHttpServletResponse doFilter(String method, String uri) throws Exception {
         MockHttpServletRequest request = new MockHttpServletRequest(method, uri);
-        request.setCookies(new Cookie(cookieManager.cookieName(), "sid"));
+        request.setCookies(new Cookie(cookieManager.cookieName(), SID));
         MockHttpServletResponse response = new MockHttpServletResponse();
         filter.doFilter(request, response, new MockFilterChain());
         return response;
@@ -92,7 +94,7 @@ class SentretAuthenticationFilterTest {
         doFilter("POST", "/session/heartbeat");
         doFilter("GET", "/api/documents");
 
-        verify(store, times(3)).findBySessionId("sid");
+        verify(store, times(3)).findBySessionId(SID);
         verifyNoMoreInteractions(store);
     }
 

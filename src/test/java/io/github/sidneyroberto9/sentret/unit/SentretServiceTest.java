@@ -40,6 +40,8 @@ import static org.mockito.Mockito.when;
 class SentretServiceTest {
 
     private static final Offset<Long> FIVE_SECONDS = Offset.offset(5_000L);
+    private static final String SID = "AbCdEfGhIjKlMnOpQr_-";
+    private static final String UNKNOWN = "ZzZzZzZzZzZzZzZzZz00";
 
     private SentretProperties properties;
     private SentretSessionStore store;
@@ -60,12 +62,12 @@ class SentretServiceTest {
 
     private void stored(Instant expiresAt, Instant lastAccessedAt) {
         SentretSession session = new SentretSession(
-                "sid", "user-1", "user@test.com", lastAccessedAt.minus(Duration.ofHours(1)), expiresAt, lastAccessedAt);
-        when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
+                SID, "user-1", "user@test.com", lastAccessedAt.minus(Duration.ofHours(1)), expiresAt, lastAccessedAt);
+        when(store.findBySessionId(SID)).thenReturn(Optional.of(session));
     }
 
     private static SentretUser user(Instant expiresAt, Instant lastAccessedAt) {
-        return new SentretUser("user-1", "user@test.com", "sid", expiresAt, lastAccessedAt);
+        return new SentretUser("user-1", "user@test.com", SID, expiresAt, lastAccessedAt);
     }
 
     // --- login ---
@@ -105,7 +107,7 @@ class SentretServiceTest {
         Instant now = Instant.now();
         stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(1)));
 
-        SentretUser user = service.validate("sid").orElseThrow();
+        SentretUser user = service.validate(SID).orElseThrow();
 
         assertThat(user.userId()).isEqualTo("user-1");
         assertThat(user.expiresAt()).isEqualTo(now.plus(Duration.ofHours(1)));
@@ -114,9 +116,20 @@ class SentretServiceTest {
 
     @Test
     void validateReturnsEmptyForUnknownSession() {
-        when(store.findBySessionId("gone")).thenReturn(Optional.empty());
+        when(store.findBySessionId(UNKNOWN)).thenReturn(Optional.empty());
 
-        assertThat(service.validate("gone")).isEmpty();
+        assertThat(service.validate(UNKNOWN)).isEmpty();
+    }
+
+    /** Anything that is not a 20-char Base64 URL id is rejected before reaching the database. */
+    @Test
+    void validateRejectsMalformedIdsWithoutTouchingTheStore() {
+        assertThat(service.validate("x".repeat(100))).isEmpty();
+        assertThat(service.validate("short")).isEmpty();
+        assertThat(service.validate("AbCdEfGhIjKlMnOpQr_!")).isEmpty();
+        assertThat(service.validate("")).isEmpty();
+
+        verifyNoInteractions(store);
     }
 
     @Test
@@ -124,7 +137,7 @@ class SentretServiceTest {
         Instant now = Instant.now();
         stored(now.minus(Duration.ofSeconds(1)), now);
 
-        assertThat(service.validate("sid")).isEmpty();
+        assertThat(service.validate(SID)).isEmpty();
     }
 
     @Test
@@ -132,7 +145,7 @@ class SentretServiceTest {
         Instant now = Instant.now();
         stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(11)));
 
-        assertThat(service.validate("sid")).isEmpty();
+        assertThat(service.validate(SID)).isEmpty();
     }
 
     @Test
@@ -141,7 +154,7 @@ class SentretServiceTest {
         Instant now = Instant.now();
         stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofHours(5)));
 
-        assertThat(service.validate("sid")).isPresent();
+        assertThat(service.validate(SID)).isPresent();
     }
 
     @Test
@@ -150,7 +163,7 @@ class SentretServiceTest {
         Instant now = Instant.now();
         stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofHours(5)));
 
-        assertThat(service.validate("sid")).isPresent();
+        assertThat(service.validate(SID)).isPresent();
     }
 
     /**
@@ -163,10 +176,10 @@ class SentretServiceTest {
         stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofSeconds(90)));
 
         for (int i = 0; i < 10; i++) {
-            service.validate("sid");
+            service.validate(SID);
         }
 
-        verify(store, times(10)).findBySessionId("sid");
+        verify(store, times(10)).findBySessionId(SID);
         verifyNoMoreInteractions(store);
     }
 
@@ -180,7 +193,7 @@ class SentretServiceTest {
         SentretUser touched = service.touch(user);
 
         ArgumentCaptor<Instant> at = ArgumentCaptor.forClass(Instant.class);
-        verify(store).updateLastAccessedAt(eq("sid"), at.capture());
+        verify(store).updateLastAccessedAt(eq(SID), at.capture());
         verifyNoMoreInteractions(store);
         assertThat(touched.lastAccessedAt()).isEqualTo(at.getValue()).isAfter(now.minusSeconds(1));
         assertThat(touched.expiresAt()).isEqualTo(user.expiresAt());
@@ -196,7 +209,7 @@ class SentretServiceTest {
 
         service.touch(user(now.plus(Duration.ofHours(1)), now.minusSeconds(1)));
 
-        verify(store).updateLastAccessedAt(eq("sid"), any());
+        verify(store).updateLastAccessedAt(eq(SID), any());
     }
 
     @Test
@@ -218,11 +231,11 @@ class SentretServiceTest {
         Instant now = Instant.now();
         stored(now.plus(Duration.ofMinutes(1)), now.minus(Duration.ofMinutes(5)));
 
-        SentretUser renewed = service.renew("sid").orElseThrow();
+        SentretUser renewed = service.renew(SID).orElseThrow();
 
         ArgumentCaptor<Instant> expiresAt = ArgumentCaptor.forClass(Instant.class);
         ArgumentCaptor<Instant> lastAccessedAt = ArgumentCaptor.forClass(Instant.class);
-        verify(store).updateExpiresAt(eq("sid"), expiresAt.capture(), lastAccessedAt.capture());
+        verify(store).updateExpiresAt(eq(SID), expiresAt.capture(), lastAccessedAt.capture());
         assertThat(expiresAt.getValue()).isEqualTo(lastAccessedAt.getValue().plus(properties.getTtl()));
         assertThat(renewed.expiresAt()).isEqualTo(expiresAt.getValue());
         assertThat(renewed.lastAccessedAt()).isEqualTo(lastAccessedAt.getValue());
@@ -230,14 +243,14 @@ class SentretServiceTest {
         ArgumentCaptor<SentretSessionRenewedEvent> event = ArgumentCaptor.forClass(SentretSessionRenewedEvent.class);
         verify(eventPublisher).publishEvent(event.capture());
         assertThat(event.getValue().userId()).isEqualTo("user-1");
-        assertThat(event.getValue().sessionId()).isEqualTo("sid");
+        assertThat(event.getValue().sessionId()).isEqualTo(SID);
     }
 
     @Test
     void renewOfUnknownSessionReturnsEmptyAndPublishesNothing() {
-        when(store.findBySessionId("missing")).thenReturn(Optional.empty());
+        when(store.findBySessionId(UNKNOWN)).thenReturn(Optional.empty());
 
-        assertThat(service.renew("missing")).isEmpty();
+        assertThat(service.renew(UNKNOWN)).isEmpty();
         verify(eventPublisher, never()).publishEvent(any());
     }
 
@@ -246,7 +259,7 @@ class SentretServiceTest {
         Instant now = Instant.now();
         stored(now.plus(Duration.ofHours(1)), now.minus(Duration.ofMinutes(11)));
 
-        assertThat(service.renew("sid")).isEmpty();
+        assertThat(service.renew(SID)).isEmpty();
         verify(store, never()).updateExpiresAt(any(), any(), any());
     }
 
@@ -256,7 +269,7 @@ class SentretServiceTest {
         Instant now = Instant.now();
         stored(now.plus(Duration.ofMinutes(2)), now);
         MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setCookies(new Cookie(cookieManager.cookieName(), "sid"));
+        request.setCookies(new Cookie(cookieManager.cookieName(), SID));
         MockHttpServletResponse response = new MockHttpServletResponse();
 
         assertThat(service.renew(request, response)).isPresent();
@@ -279,20 +292,20 @@ class SentretServiceTest {
         Instant now = Instant.now();
         stored(now.plus(Duration.ofHours(1)), now);
 
-        service.logout("sid");
+        service.logout(SID);
 
-        verify(store).deleteBySessionId("sid");
+        verify(store).deleteBySessionId(SID);
         ArgumentCaptor<SentretSessionDestroyedEvent> event = ArgumentCaptor.forClass(SentretSessionDestroyedEvent.class);
         verify(eventPublisher).publishEvent(event.capture());
         assertThat(event.getValue().userId()).isEqualTo("user-1");
-        assertThat(event.getValue().sessionId()).isEqualTo("sid");
+        assertThat(event.getValue().sessionId()).isEqualTo(SID);
     }
 
     @Test
     void logoutOfUnknownSessionPublishesNothing() {
-        when(store.findBySessionId("gone")).thenReturn(Optional.empty());
+        when(store.findBySessionId(UNKNOWN)).thenReturn(Optional.empty());
 
-        service.logout("gone");
+        service.logout(UNKNOWN);
 
         verify(store, never()).deleteBySessionId(any());
         verifyNoInteractions(eventPublisher);
