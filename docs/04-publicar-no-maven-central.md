@@ -102,10 +102,11 @@ cd /home/sid/www/personal/spring-lite-session
 ```
 
 1. **Versão definida** no `pom.xml`. Para um release a versão **não** pode ser
-   `-SNAPSHOT` (o Central recusa snapshots). Hoje está `2.0.0`:
+   `-SNAPSHOT` (o Central recusa snapshots). Hoje está `1.0.0` (primeira versão do artefato
+   `sentret-session`):
 
    ```xml
-   <version>2.0.0</version>
+   <version>1.0.0</version>
    ```
 
 2. **Testes verdes:**
