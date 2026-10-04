@@ -1,28 +1,29 @@
-# Spring Session Lite — Instalação e Uso
+# Sentret — Instalação e Uso
 
-Guia do zero até um endpoint autenticado funcionando.
+Guia rápido para colocar a biblioteca para funcionar numa aplicação Spring Boot.
 
 ---
 
 ## 1. O que é
 
-Starter do Spring Boot 3 que fornece autenticação por **sessão persistida em banco**,
-substituindo JWT.
+Autenticação por sessão com cookie, leve, para Spring Boot 3 e 4:
 
-- A sessão é gravada na própria base da aplicação (usa o `spring.datasource.*` existente).
-- O identificador é um **NanoID** entregue num cookie **HttpOnly** chamado `SLSID` (configurável).
-- Sem Redis nem infra externa.
-- A aplicação faz **uma chamada** no login; cookie, filtro, contexto de segurança e limpeza são automáticos.
+- O navegador carrega só um cookie opaco `HttpOnly` (`SENTRETSID`).
+- A sessão fica no banco da **própria aplicação**, via `JdbcTemplate` (SQL puro, sem JPA).
+- Um filtro valida o cookie a cada request e publica um `SentretUser` como principal do Spring
+  Security.
+- Opcionalmente, um **hub de inatividade** (`sentret.hub.*`) expõe os endpoints usados pelo client
+  npm `@media4all/session-lite` (ver [06](./06-sessao-centralizada-multissistema.md)).
 
 ---
 
 ## 2. Requisitos
 
-| Item | Versão mínima |
-|------|---------------|
-| Java | 17 |
-| Spring Boot | 3.x |
-| Banco | Qualquer um suportado pelo JPA/Hibernate |
+- Java 17+
+- Spring Boot 3.5+ ou 4.x
+- Um `DataSource` com `JdbcTemplate` — `spring-boot-starter-jdbc` ou `spring-boot-starter-data-jpa`
+  (que já inclui o JDBC)
+- Spring Security e Spring Web MVC (já vêm como dependências da lib)
 
 ---
 
@@ -31,196 +32,165 @@ substituindo JWT.
 ```xml
 <dependency>
     <groupId>io.github.sidneyroberto9</groupId>
-    <artifactId>spring-session-lite</artifactId>
-    <version>2.0.0</version>
+    <artifactId>sentret-session</artifactId>
+    <version>1.0.0</version>
 </dependency>
 ```
 
-Traz transitivamente `spring-boot-starter-data-jpa`, `-security` e `-web`. Adicione o **driver
-do seu banco** (`mysql-connector-j`, `postgresql`, …).
+### 3.1. Tabela
+
+Rode uma vez (Flyway, Liquibase ou à mão). O mesmo SQL serve MySQL, MariaDB, PostgreSQL,
+SQL Server e H2, e vai dentro do jar em `db/sentret-schema.sql`:
+
+```sql
+CREATE TABLE sentret_sessions (
+    session_id       VARCHAR(20)  NOT NULL PRIMARY KEY,
+    user_id          VARCHAR(255) NOT NULL,
+    email            VARCHAR(255),
+    created_at       BIGINT       NOT NULL,
+    expires_at       BIGINT       NOT NULL,
+    last_accessed_at BIGINT       NOT NULL
+);
+
+CREATE INDEX idx_sentret_sessions_user_id ON sentret_sessions (user_id);
+CREATE INDEX idx_sentret_sessions_expires_at ON sentret_sessions (expires_at);
+```
+
+Os tempos são epoch em milissegundos (`BIGINT`): sem conversão de fuso horário e sem o limite de
+2038.
 
 ---
 
 ## 4. Configuração mínima
 
-Basta ter um `DataSource` configurado:
+Nenhuma propriedade é obrigatória. Em produção, o comum é só:
 
 ```properties
-spring.datasource.url=jdbc:mysql://localhost:3306/minha_app
-spring.datasource.username=root
-spring.datasource.password=secret
+sentret.ttl=4h
+sentret.cors-allowed-origins=https://app.meusite.com
 ```
 
-A tabela `spring_session_lite_sessions` é criada automaticamente com `ddl-auto=update`. Para
-`none`/`validate`, use o DDL em
-[`src/main/resources/db/spring-session-lite-schema.sql`](../src/main/resources/db/spring-session-lite-schema.sql).
-Demais propriedades em [`02-configuracao-application-properties.md`](./02-configuracao-application-properties.md).
+Em desenvolvimento local, sobre HTTP: `sentret.cookie-secure=false`. Lista completa em
+[02](./02-configuracao-application-properties.md).
 
 ---
 
 ## 5. Uso
 
-### 5.1. Login
+### 5.1. Login e logout
 
-Depois de validar as credenciais, chame `SpringSessionLiteService.login(...)`. A lib gera a
-sessão, grava no banco e escreve o cookie `SLSID`.
+A lib não autentica credenciais: a sua aplicação faz isso e depois abre a sessão.
 
 ```java
-import io.github.sidneyroberto9.spring_session_lite.security.SpringSessionLiteUser;
-import io.github.sidneyroberto9.spring_session_lite.service.SpringSessionLiteService;
-import jakarta.servlet.http.HttpServletRequest;
-import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
-import org.springframework.http.ResponseEntity;
-import org.springframework.web.bind.annotation.*;
-
-import java.util.List;
-
 @RestController
 @RequiredArgsConstructor
 public class AuthController {
 
-    private final SpringSessionLiteService sessionService;
-    private final UserService userService;
+    private final SentretService sentret;
 
-    @PostMapping("/login")
-    public ResponseEntity<SpringSessionLiteUser> login(
-            @RequestBody LoginRequest body,
-            HttpServletRequest request,
-            HttpServletResponse response) {
+    @PostMapping("/auth/login")
+    public ResponseEntity<SentretUser> login(@RequestBody LoginRequest body, HttpServletResponse response) {
+        String userId = credentials.check(body); // autenticação da sua aplicação
+        SentretUser user = sentret.login(userId, body.email(), response);
+        return ResponseEntity.status(HttpStatus.OK).body(user);
+    }
 
-        User user = userService.authenticate(body.getEmail(), body.getPassword());
-
-        SpringSessionLiteUser session = sessionService.login(
-                String.valueOf(user.getId()),   // userId aceita Long, UUID, etc.
-                user.getEmail(),
-                List.of("ADMIN"),               // roles opcionais → authority ROLE_ADMIN
-                request,
-                response);
-
-        return ResponseEntity.ok(session);
+    @PostMapping("/auth/logout")
+    public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
+        sentret.logout(request, response);
+        return ResponseEntity.status(HttpStatus.NO_CONTENT).build();
     }
 }
 ```
 
-> Sobrecarga sem roles: `sessionService.login(userId, email, request, response)`.
+- `login(...)` grava a sessão, escreve o cookie e publica `SentretSessionCreatedEvent`. Antes,
+  apaga as sessões já expiradas.
+- `logout(request, response)` apaga a sessão do cookie, limpa o cookie e publica
+  `SentretSessionDestroyedEvent`.
+- `logoutAll(userId)` derruba todas as sessões de um usuário.
 
-### 5.2. Logout
-
-```java
-@PostMapping("/logout")
-public ResponseEntity<Void> logout(HttpServletRequest request, HttpServletResponse response) {
-    sessionService.logout(request, response);   // apaga a sessão + limpa o cookie
-    return ResponseEntity.noContent().build();
-}
-```
-
-Para revogar **todas** as sessões de um usuário (ex.: troca de senha):
-```java
-sessionService.logoutAll(userId);
-```
-
-### 5.3. Sessão atual no controller
+### 5.2. Usuário atual no controller
 
 ```java
-import io.github.sidneyroberto9.spring_session_lite.security.SpringSessionLiteUser;
-import io.github.sidneyroberto9.spring_session_lite.web.SpringSessionLiteCurrentSession;
-
 @GetMapping("/me")
-public ResponseEntity<SpringSessionLiteUser> me(@SpringSessionLiteCurrentSession SpringSessionLiteUser user) {
-    return ResponseEntity.ok(user);
+public ResponseEntity<SentretUser> me(@AuthenticationPrincipal SentretUser user) {
+    return ResponseEntity.status(HttpStatus.OK).body(user);
 }
 ```
 
-O `SpringSessionLiteUser` é um `record` com: `userId()`, `email()`, `sessionId()`, `roles()`.
+`SentretUser` traz `userId`, `email`, `sessionId`, `expiresAt` e `lastAccessedAt`. **Roles e
+permissões ficam na sua aplicação**, buscadas pelo `userId`.
 
-### 5.4. Sessão atual fora do controller
+### 5.3. Usuário atual fora do controller
 
 ```java
-import io.github.sidneyroberto9.spring_session_lite.service.SpringSessionLiteUserService;
+private final SentretUserService userService;
 
-@Service
-@RequiredArgsConstructor
-public class OrderService {
-
-    private final SpringSessionLiteUserService sessionUserService;
-
-    public Order createForCurrentUser(OrderRequest request) {
-        SpringSessionLiteUser user = sessionUserService.currentUser()
-                .orElseThrow(() -> new IllegalStateException("Sem sessão autenticada"));
-        return repository.save(new Order(user.userId(), request));
-    }
+public void algumMetodo() {
+    userService.currentUser().ifPresent(user -> log.info("usuário {}", user.userId()));
 }
 ```
 
-### 5.5. Requisições subsequentes
+### 5.4. Requisições seguintes
 
-Nada a fazer — o filtro lê o cookie, valida e popula o `SecurityContext`. Em chamadas
-`fetch`/`axios` de outra origem, habilite credenciais e configure CORS
-(`spring-session-lite.cors-enabled=true`):
-
-```javascript
-fetch("/me", { credentials: "include" });
-```
+O navegador manda o cookie sozinho. Em chamadas cross-origin, o front precisa enviar credenciais
+(`credentials: 'include'` / `withCredentials: true`) e a API precisa ter a origem em
+`sentret.cors-allowed-origins`.
 
 ---
 
 ## 6. Integração com Spring Security
 
-### 6.1. Sem `SecurityFilterChain` próprio (zero-config)
+### 6.1. Sem `SecurityFilterChain` próprio
 
-A lib registra um chain opinativo que: política `STATELESS`; libera `permit-all-paths`; exige
-autenticação no resto; responde **401** sem sessão válida; CSRF/CORS conforme propriedades.
+A lib registra uma cadeia padrão: `STATELESS`; libera `permit-all-paths`; exige autenticação no
+resto; responde **401 sem corpo** sem sessão válida; CSRF conforme `csrf-enabled`; CORS ligado
+quando `cors-allowed-origins` não está vazio.
 
 ### 6.2. Com `SecurityFilterChain` próprio
 
-O chain da lib desliga (`@ConditionalOnMissingBean`). Adicione **uma linha**:
+A cadeia da lib não é criada (`@ConditionalOnMissingBean`). Adicione o filtro na sua:
 
 ```java
-import io.github.sidneyroberto9.spring_session_lite.security.SpringSessionLiteAuthenticationFilter;
-
 @Configuration
 @RequiredArgsConstructor
 public class SecurityConfig {
 
-    private final SpringSessionLiteAuthenticationFilter sessionAuthenticationFilter;
+    private final SentretAuthenticationFilter sentretAuthenticationFilter;
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
                 .sessionManagement(sm -> sm.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
-                        .requestMatchers("/login", "/public/**").permitAll()
+                        .requestMatchers("/auth/login", "/public/**").permitAll()
                         .anyRequest().authenticated())
-                .addFilterBefore(sessionAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+                .addFilterBefore(sentretAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
         return http.build();
     }
 }
 ```
 
-> **CSRF & cookie:** autenticação por cookie é sensível a CSRF. Mantenha `SameSite=Lax`/`Strict`
-> (padrão) ou habilite `csrf-enabled`. Evite `SameSite=None` sem CSRF.
+> **CSRF e cookie:** autenticação por cookie é sensível a CSRF. Mantenha `SameSite=Lax`/`Strict`
+> (padrão) ou ligue `csrf-enabled`. Evite `SameSite=None` sem CSRF — a lib avisa no startup.
 
 ---
 
-## 7. Comportamento de expiração (401)
+## 7. Expiração e 401
 
-- **Sem cookie** → segue anônimo (`/login` acessível).
-- **Cookie inválido/expirado/IP divergente** → o filtro **não** bloqueia rotas `permit-all`:
-  limpa o cookie morto, segue anônimo, e a autorização decide. Em rota protegida → **401**:
+- **Sem cookie** → segue anônimo (o login continua acessível).
+- **Cookie inválido, expirado ou inativo há mais de `max-idle`** → o filtro **não** bloqueia rotas
+  `permit-all`: apaga o cookie morto, segue anônimo e a autorização decide. Em rota protegida →
+  **401 sem corpo**.
 
-```json
-{ "error": "unauthorized", "message": "Authentication required" }
-```
-
-Assim, um cookie expirado **nunca** trava o re-login.
+Assim, um cookie expirado nunca trava o re-login.
 
 ---
 
-## 8. Limpeza automática
+## 8. Limpeza das sessões expiradas
 
-Task `@Scheduled` (padrão: a cada 30 min) remove sessões expiradas. Ajuste com `cleanup-cron`
-ou desligue com `cleanup-enabled=false`.
+Não há tarefa agendada: cada `login` apaga as sessões já expiradas (um `DELETE` pelo índice de
+`expires_at`). A lib também **não** liga `@EnableScheduling` na sua aplicação.
 
 ---
 
@@ -228,3 +198,4 @@ ou desligue com `cleanup-enabled=false`.
 
 - [Configuração](./02-configuracao-application-properties.md)
 - [Como funciona por dentro](./03-como-funciona.md)
+- [Hub de inatividade entre aplicações](./06-sessao-centralizada-multissistema.md)
