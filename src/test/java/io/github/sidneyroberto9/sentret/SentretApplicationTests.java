@@ -19,6 +19,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -96,8 +97,10 @@ class SentretApplicationTests {
     }
 
     @Test
-    void meWithNoCookieReturns401() throws Exception {
-        mockMvc.perform(get("/me")).andExpect(status().isUnauthorized());
+    void meWithNoCookieReturns401WithoutBody() throws Exception {
+        mockMvc.perform(get("/me"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(content().string(""));
     }
 
     @Test

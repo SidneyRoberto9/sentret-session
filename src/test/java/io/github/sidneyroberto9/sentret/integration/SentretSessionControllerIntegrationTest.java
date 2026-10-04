@@ -23,6 +23,7 @@ import static org.assertj.core.api.Assertions.within;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -223,11 +224,10 @@ class SentretSessionControllerIntegrationTest {
     }
 
     @Test
-    void renewWithoutValidCookieReturns401WithStandardErrorBody() throws Exception {
+    void renewWithoutValidCookieReturns401WithoutBody() throws Exception {
         mockMvc.perform(post("/session/renew"))
                 .andExpect(status().isUnauthorized())
-                .andExpect(jsonPath("$.error").value("unauthorized"))
-                .andExpect(jsonPath("$.message").value("Authentication required"));
+                .andExpect(content().string(""));
     }
 
     // --- POST /session/logout ---

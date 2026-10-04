@@ -26,12 +26,11 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Import;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.MediaType;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
-import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
 import org.springframework.web.cors.CorsConfiguration;
@@ -104,12 +103,6 @@ public class SentretAutoConfiguration {
             SentretProperties properties
     ) throws Exception {
 
-        AuthenticationEntryPoint entryPoint = (req, res, ex) -> {
-            res.setStatus(HttpStatus.UNAUTHORIZED.value());
-            res.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            res.getWriter().write("{\"error\":\"unauthorized\",\"message\":\"Authentication required\"}");
-        };
-
         // The opt-in /session/* endpoints controller lives in a separate @AutoConfiguration
         // (SentretEndpointsAutoConfiguration) so it can be conditioned independently on
         // endpoints-enabled. Bean-instantiation order across two distinct @AutoConfiguration
@@ -125,7 +118,7 @@ public class SentretAutoConfiguration {
                 .logout(AbstractHttpConfigurer::disable)
                 .formLogin(AbstractHttpConfigurer::disable)
                 .httpBasic(AbstractHttpConfigurer::disable)
-                .exceptionHandling(e -> e.authenticationEntryPoint(entryPoint))
+                .exceptionHandling(e -> e.authenticationEntryPoint(new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED)))
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(permitAll.toArray(String[]::new)).permitAll()
                         .anyRequest().authenticated())
