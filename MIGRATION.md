@@ -1,4 +1,7 @@
-# Migração — spring-session-lite 3.x → Sentret 1.0.0
+# Migração — spring-session-lite 2.x/3.x → Sentret 1.0.0
+
+Vale para quem está na 3.x e na 2.x (o eleva-helpdesk está na 2.0.0): as diferenças entre 2.0 e 3.0
+foram no hub e no SSE, que eram opt-in; os passos abaixo cobrem os dois casos.
 
 ## 1. Dependência
 
@@ -10,6 +13,10 @@
 A app precisa de `JdbcTemplate` (`spring-boot-starter-jdbc` ou `spring-boot-starter-data-jpa`).
 
 ## 2. Banco
+
+> **Obrigatório em cada ambiente.** A tabela **não** é criada sozinha: antes o Hibernate
+> (`ddl-auto=update`) criava a tabela da entidade; agora a lib usa SQL puro. Sem a tabela a app sobe
+> normalmente, mas todo login dá 500 — a lib loga um ERROR no startup avisando.
 
 Criar a tabela nova com `db/sentret-schema.sql` (ver README). A antiga pode ser apagada
 (`DROP TABLE spring_session_lite_sessions`): todo usuário faz login de novo uma vez.
@@ -40,6 +47,8 @@ Criar a tabela nova com `db/sentret-schema.sql` (ver README). A antiga pode ser 
 | `SpringSessionLiteUser.roles()` | removido: busque as roles na sua app pelo `userId` |
 | `@SpringSessionLiteCurrentSession SpringSessionLiteUser user` | `@AuthenticationPrincipal SentretUser user` |
 | `validate(sessionId, request)` | `validate(sessionId)` |
+| Beans `SpringSessionLiteIpResolver` / `SpringSessionLiteIpHasher` declarados na app | apague: as classes não existem mais |
+| `properties.getEndpointsBasePath()` / `isEndpointsEnabled()` | `properties.getHub().getBasePath()` / `getHub().isEnabled()` |
 | `renew(request, response)` | `renew(user, response)` (principal já validado) ou `renew(sessionId)` |
 | `deleteExpired()`, `remaining(...)` | removidos |
 | `SessionRenewedEvent(userId, sessionId, renewedAt, absoluteRemainingMs, idleRemainingMs)` | `SentretSessionRenewedEvent(userId, sessionId, renewedAt)` |
@@ -68,8 +77,10 @@ absoluto. Para manter o comportamento antigo, escolha um:
   mas a partir do login).
 - Ligar o hub (`sentret.hub.enabled=true` + client npm) e usar `max-idle`: a sessão vive enquanto
   houver atividade, até o `ttl`.
-- Chamar `sentretService.renew(sessionId)` no ponto da app que representa atividade (ex.: um
-  interceptor) — cada chamada faz um `UPDATE`, então limite a frequência.
+- Chamar `sentretService.renew(user, response)` no ponto da app que representa atividade (ex.: um
+  interceptor, com o usuário de `SentretUserService.currentUser()`). Essa versão também reescreve o
+  cookie — a `renew(sessionId)` não, e o navegador descartaria o cookie no `ttl` do login. Cada
+  chamada faz um `UPDATE`, então limite a frequência.
 
 ## 7. Spring Boot
 
@@ -82,7 +93,8 @@ Confira em `docs/01-instalacao-e-uso.md` §6.2:
 
 - `.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()` na sua cadeia;
 - `FilterRegistrationBean` do filtro desligado (opcional; as apps m4all já têm);
-- com o hub: `GET {hub.base-path}/status` liberado e, com CSRF, `heartbeat`/`renew` isentos.
+- com o hub: `GET {hub.base-path}/status` liberado e, com CSRF, `heartbeat`/`renew` isentos;
+- com o client npm e CSRF: o `appLogoutUrl` isento (`sentret.csrf-ignored-paths` na cadeia padrão).
 
 ---
 
