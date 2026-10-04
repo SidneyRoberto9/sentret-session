@@ -22,20 +22,18 @@ import java.util.Optional;
 
 @RequiredArgsConstructor
 public class SentretService {
-    private final SentretIpHasher ipHasher;
     private final SentretSessionStore store;
     private final SentretProperties properties;
-    private final SentretIpResolver ipResolver;
     private final ApplicationEventPublisher eventPublisher;
     private final SentretCookieManager cookieManager;
 
     @Transactional
-    public SentretUser login(String userId, String email, HttpServletRequest request, HttpServletResponse response) {
-        return this.login(userId, email, List.of(), request, response);
+    public SentretUser login(String userId, String email, HttpServletResponse response) {
+        return this.login(userId, email, List.of(), response);
     }
 
     @Transactional
-    public SentretUser login(String userId, String email, List<String> roles, HttpServletRequest request, HttpServletResponse response) {
+    public SentretUser login(String userId, String email, List<String> roles, HttpServletResponse response) {
         Instant now = Instant.now();
 
         SentretSession session = new SentretSession();
@@ -43,7 +41,6 @@ public class SentretService {
         session.setUserId(userId);
         session.setEmail(email);
         session.setRoles(joinRoles(roles));
-        session.setIpHash(ipHasher.hash(ipResolver.resolve(request)));
         session.setCreatedAt(now);
         session.setLastAccessedAt(now);
         session.setExpiresAt(now.plus(properties.getTtl()));
@@ -70,7 +67,7 @@ public class SentretService {
      * real DOM events.
      */
     @Transactional(readOnly = true)
-    public Optional<SentretUser> validate(String sessionId, HttpServletRequest request) {
+    public Optional<SentretUser> validate(String sessionId) {
         return store.findBySessionId(sessionId).flatMap(session -> {
             Instant now = Instant.now();
 
@@ -84,12 +81,6 @@ public class SentretService {
                 if (reference.plus(properties.getMaxIdle()).isBefore(now)) {
                     return Optional.empty();
                 }
-            }
-
-            String currentIpHash = ipHasher.hash(ipResolver.resolve(request));
-
-            if (!session.getIpHash().equals(currentIpHash)) {
-                return Optional.empty();
             }
 
             return Optional.of(this.toUser(session));
@@ -181,7 +172,7 @@ public class SentretService {
     /**
      * Read-only snapshot of remaining time for the given session, for status/heartbeat/renew
      * responses. Does not touch/validate the session — callers that need validation call
-     * {@link #validate(String, HttpServletRequest)} first (the authentication filter already does
+     * {@link #validate(String)} first (the authentication filter already does
      * this on every authenticated request).
      */
     @Transactional(readOnly = true)

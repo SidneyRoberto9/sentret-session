@@ -14,10 +14,6 @@ public class SentretSecurityValidator implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() {
-        if (properties.isCookieSecure() && SentretProperties.DEFAULT_IP_HASH_SALT.equals(properties.getIpHashSalt())) {
-            log.warn("[sentret] 'ip-hash-salt' is still the default in a secure setup. " + "Set a strong 'sentret.ip-hash-salt' (e.g. via env var) in production.");
-        }
-
         if ("None".equalsIgnoreCase(properties.getCookieSameSite()) && !properties.isCsrfEnabled()) {
             log.warn("[sentret] 'cookie-same-site=None' with CSRF disabled is unsafe for " + "cookie-based auth. Enable 'sentret.csrf-enabled' or use SameSite=Lax/Strict.");
         }

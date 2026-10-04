@@ -5,8 +5,6 @@ import io.github.sidneyroberto9.sentret.domain.SentretSession;
 import io.github.sidneyroberto9.sentret.event.SentretSessionRenewedEvent;
 import io.github.sidneyroberto9.sentret.security.SentretUser;
 import io.github.sidneyroberto9.sentret.service.SentretCookieManager;
-import io.github.sidneyroberto9.sentret.service.SentretIpHasher;
-import io.github.sidneyroberto9.sentret.service.SentretIpResolver;
 import io.github.sidneyroberto9.sentret.service.SentretService;
 import io.github.sidneyroberto9.sentret.service.SentretSessionRemaining;
 import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
@@ -35,7 +33,6 @@ class SentretServiceTest {
     private SentretProperties properties;
     private SentretSessionStore store;
     private ApplicationEventPublisher eventPublisher;
-    private SentretIpHasher ipHasher;
     private SentretCookieManager cookieManager;
     private SentretService service;
 
@@ -44,39 +41,29 @@ class SentretServiceTest {
         properties = new SentretProperties();
         store = mock(SentretSessionStore.class);
         eventPublisher = mock(ApplicationEventPublisher.class);
-        ipHasher = new SentretIpHasher(properties);
         cookieManager = new SentretCookieManager(properties);
-        SentretIpResolver ipResolver = new SentretIpResolver(properties);
 
-        service = new SentretService(ipHasher, store, properties, ipResolver, eventPublisher, cookieManager);
+        service = new SentretService(store, properties, eventPublisher, cookieManager);
     }
 
-    private SentretSession sessionFor(String ip, Instant now) {
+    private SentretSession sessionFor(Instant now) {
         SentretSession session = new SentretSession();
         session.setSessionId("sid");
         session.setUserId("user-1");
         session.setEmail("user@test.com");
-        session.setIpHash(ipHasher.hash(ip));
         session.setCreatedAt(now.minus(Duration.ofHours(1)));
         session.setExpiresAt(now.plus(Duration.ofHours(1)));
         session.setLastAccessedAt(now);
         return session;
     }
 
-    private MockHttpServletRequest request(String ip) {
-        MockHttpServletRequest request = new MockHttpServletRequest();
-        request.setRemoteAddr(ip);
-        return request;
-    }
-
     // --- login(): 4-arg overload delegates to the 5-arg one with no roles ---
 
     @Test
     void loginWithoutRolesDelegatesToRolesOverloadWithEmptyRoles() {
-        MockHttpServletRequest request = request("203.0.113.30");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        SentretUser user = service.login("user-1", "user@test.com", request, response);
+        SentretUser user = service.login("user-1", "user@test.com", response);
 
         assertThat(user.roles()).isEmpty();
         verify(store).save(any());
@@ -108,7 +95,7 @@ class SentretServiceTest {
         properties.setSlidingExpiration(false);
         // maxIdle defaults to Duration.ZERO -> isIdleEnabled() is false too
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.31", now);
+        SentretSession session = sessionFor(now);
         Instant lastAccessed = now.minus(Duration.ofHours(1));
         session.setLastAccessedAt(lastAccessed);
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
@@ -126,7 +113,7 @@ class SentretServiceTest {
         properties.setTtl(Duration.ofHours(1));
         properties.setSlidingExpiration(true);
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.32", now);
+        SentretSession session = sessionFor(now);
         session.setExpiresAt(now.plus(Duration.ofMinutes(1)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
@@ -144,7 +131,7 @@ class SentretServiceTest {
         properties.setSlidingExpiration(true);
         properties.setTtl(Duration.ofHours(1));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.33", now);
+        SentretSession session = sessionFor(now);
         Instant lastAccessed = now.minus(Duration.ofMinutes(10));
         session.setLastAccessedAt(lastAccessed);
         session.setExpiresAt(now.plus(Duration.ofMinutes(1)));
@@ -165,7 +152,7 @@ class SentretServiceTest {
         properties.setSlidingExpiration(false);
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.34", now);
+        SentretSession session = sessionFor(now);
         Instant lastAccessed = now.minus(Duration.ofMinutes(5));
         session.setLastAccessedAt(lastAccessed);
         Instant expiresAt = session.getExpiresAt();
@@ -184,7 +171,7 @@ class SentretServiceTest {
     void remainingTreatsNullMaxIdleAsDisabled() {
         properties.setMaxIdle(null);
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.35", now);
+        SentretSession session = sessionFor(now);
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
         Optional<SentretSessionRemaining> result = service.remaining("sid");
@@ -210,10 +197,9 @@ class SentretServiceTest {
 
     @Test
     void loginWithNullRolesStoresNullRoles() {
-        MockHttpServletRequest request = request("203.0.113.36");
         MockHttpServletResponse response = new MockHttpServletResponse();
 
-        SentretUser user = service.login("user-1", "user@test.com", null, request, response);
+        SentretUser user = service.login("user-1", "user@test.com", null, response);
 
         assertThat(user.roles()).isEmpty();
     }
@@ -221,11 +207,11 @@ class SentretServiceTest {
     @Test
     void validateSplitsBlankStoredRolesAsEmptyList() {
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.37", now);
+        SentretSession session = sessionFor(now);
         session.setRoles("   ");
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        Optional<SentretUser> result = service.validate("sid", request("203.0.113.37"));
+        Optional<SentretUser> result = service.validate("sid");
 
         assertThat(result).isPresent();
         assertThat(result.get().roles()).isEmpty();
@@ -234,11 +220,11 @@ class SentretServiceTest {
     @Test
     void validateFiltersOutBlankEntriesFromStoredRoles() {
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.38", now);
+        SentretSession session = sessionFor(now);
         session.setRoles("ADMIN,,USER");
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        Optional<SentretUser> result = service.validate("sid", request("203.0.113.38"));
+        Optional<SentretUser> result = service.validate("sid");
 
         assertThat(result).isPresent();
         assertThat(result.get().roles()).containsExactly("ADMIN", "USER");
@@ -250,11 +236,11 @@ class SentretServiceTest {
     void validateReturnsEmptyWhenIdleExceedsMaxIdle() {
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.1", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(now.minus(Duration.ofMinutes(11)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        Optional<SentretUser> result = service.validate("sid", request("203.0.113.1"));
+        Optional<SentretUser> result = service.validate("sid");
 
         assertThat(result).isEmpty();
         verify(store, never()).save(any());
@@ -269,12 +255,12 @@ class SentretServiceTest {
         // resets the clock.
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.2", now);
+        SentretSession session = sessionFor(now);
         Instant lastAccessed = now.minus(Duration.ofMinutes(9));
         session.setLastAccessedAt(lastAccessed);
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        Optional<SentretUser> result = service.validate("sid", request("203.0.113.2"));
+        Optional<SentretUser> result = service.validate("sid");
 
         assertThat(result).isPresent();
         assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
@@ -286,7 +272,7 @@ class SentretServiceTest {
         // The heartbeat path: the one and only activity signal.
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.2", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(now.minus(Duration.ofMinutes(9)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
@@ -313,13 +299,13 @@ class SentretServiceTest {
     void repeatedValidationNeverExtendsIdleWindow() {
         properties.setMaxIdle(Duration.ofMinutes(2));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.2", now);
+        SentretSession session = sessionFor(now);
         Instant lastAccessed = now.minus(Duration.ofSeconds(90));
         session.setLastAccessedAt(lastAccessed);
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
         for (int i = 0; i < 10; i++) {
-            service.validate("sid", request("203.0.113.2"));
+            service.validate("sid");
         }
 
         assertThat(session.getLastAccessedAt()).isEqualTo(lastAccessed);
@@ -330,46 +316,46 @@ class SentretServiceTest {
     void validateIgnoresInactivityWhenMaxIdleDisabledByDefault() {
         // maxIdle defaults to Duration.ZERO (disabled), preserving pre-2.1 behavior exactly.
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.3", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(now.minus(Duration.ofHours(10)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        assertThat(service.validate("sid", request("203.0.113.3"))).isPresent();
+        assertThat(service.validate("sid")).isPresent();
     }
 
     @Test
     void validateIgnoresInactivityWhenMaxIdleNegative() {
         properties.setMaxIdle(Duration.ofMinutes(-5));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.4", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(now.minus(Duration.ofHours(10)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        assertThat(service.validate("sid", request("203.0.113.4"))).isPresent();
+        assertThat(service.validate("sid")).isPresent();
     }
 
     @Test
     void validateFallsBackToCreatedAtWhenLastAccessedAtNullAndIdleExceeded() {
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.5", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(null);
         session.setCreatedAt(now.minus(Duration.ofMinutes(11)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        assertThat(service.validate("sid", request("203.0.113.5"))).isEmpty();
+        assertThat(service.validate("sid")).isEmpty();
     }
 
     @Test
     void validateFallsBackToCreatedAtWhenLastAccessedAtNullAndWithinIdle() {
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.6", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(null);
         session.setCreatedAt(now.minus(Duration.ofMinutes(1)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
-        assertThat(service.validate("sid", request("203.0.113.6"))).isPresent();
+        assertThat(service.validate("sid")).isPresent();
     }
 
     /**
@@ -385,7 +371,7 @@ class SentretServiceTest {
         properties.setMaxIdle(Duration.ofMinutes(4));
         properties.setLastAccessedThrottle(Duration.ofMinutes(5));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.7", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(now.minus(Duration.ofSeconds(1)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
@@ -400,7 +386,7 @@ class SentretServiceTest {
         properties.setMaxIdle(Duration.ofMinutes(10));
         properties.setLastAccessedThrottle(Duration.ofHours(1));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.7", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(now.minus(Duration.ofSeconds(5)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
@@ -418,13 +404,13 @@ class SentretServiceTest {
     void touchRescuesSessionAboutToIdleExpire() {
         properties.setMaxIdle(Duration.ofMinutes(2));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.7", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(now.minus(Duration.ofSeconds(119)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
         service.touch("sid");
 
-        assertThat(service.validate("sid", request("203.0.113.7"))).isPresent();
+        assertThat(service.validate("sid")).isPresent();
         assertThat(service.remaining("sid").orElseThrow().idleRemainingMs())
                 .isGreaterThan(Duration.ofSeconds(115).toMillis());
     }
@@ -435,7 +421,7 @@ class SentretServiceTest {
     void renewBySessionIdResetsExpiresAtAndLastAccessedAtAndPublishesEvent() {
         properties.setTtl(Duration.ofHours(2));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.9", now);
+        SentretSession session = sessionFor(now);
         session.setExpiresAt(now.plus(Duration.ofMinutes(1)));
         session.setLastAccessedAt(now.minus(Duration.ofMinutes(30)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
@@ -467,7 +453,7 @@ class SentretServiceTest {
     void renewWithRequestAndResponseRewritesCookieMaxAge() {
         properties.setTtl(Duration.ofMinutes(30));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.10", now);
+        SentretSession session = sessionFor(now);
         session.setExpiresAt(now.plus(Duration.ofMinutes(2)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
@@ -507,7 +493,7 @@ class SentretServiceTest {
     @Test
     void remainingReturnsNullIdleRemainingWhenMaxIdleDisabledByDefault() {
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.20", now);
+        SentretSession session = sessionFor(now);
         session.setExpiresAt(now.plus(Duration.ofMinutes(30)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
 
@@ -522,7 +508,7 @@ class SentretServiceTest {
     void remainingComputesIdleRemainingWhenMaxIdleEnabled() {
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.21", now);
+        SentretSession session = sessionFor(now);
         session.setExpiresAt(now.plus(Duration.ofMinutes(30)));
         session.setLastAccessedAt(now.minus(Duration.ofMinutes(4)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
@@ -538,7 +524,7 @@ class SentretServiceTest {
     void remainingFallsBackToCreatedAtWhenLastAccessedAtNullAndMaxIdleEnabled() {
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.22", now);
+        SentretSession session = sessionFor(now);
         session.setLastAccessedAt(null);
         session.setCreatedAt(now.minus(Duration.ofMinutes(2)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));
@@ -554,7 +540,7 @@ class SentretServiceTest {
     void remainingClampsToZeroWhenAlreadyPastExpiryOrIdleDeadline() {
         properties.setMaxIdle(Duration.ofMinutes(10));
         Instant now = Instant.now();
-        SentretSession session = sessionFor("203.0.113.23", now);
+        SentretSession session = sessionFor(now);
         session.setExpiresAt(now.minus(Duration.ofMinutes(1)));
         session.setLastAccessedAt(now.minus(Duration.ofMinutes(20)));
         when(store.findBySessionId("sid")).thenReturn(Optional.of(session));

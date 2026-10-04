@@ -130,15 +130,19 @@ class SentretApplicationTests {
         assertThat(sessionRepository.count()).isZero();
     }
 
+    /**
+     * Mobile, VPN and corporate networks change the client IP mid-session. The session is bound to
+     * the cookie only, so a new IP must not log the user out.
+     */
     @Test
-    void ipMismatchReturns401() throws Exception {
+    void sessionSurvivesClientIpChange() throws Exception {
         Cookie cookie = login("user4", "user4@test.com");
-        sessionRepository.findBySessionId(cookie.getValue()).ifPresent(session -> {
-            session.setIpHash("0000000000000000000000000000000000000000000000000000000000000000");
-            sessionRepository.save(session);
-        });
 
-        mockMvc.perform(get("/me").cookie(cookie)).andExpect(status().isUnauthorized());
+        mockMvc.perform(get("/me").cookie(cookie).with(request -> {
+                    request.setRemoteAddr("198.51.100.77");
+                    return request;
+                }))
+                .andExpect(status().isOk());
     }
 
     @Test

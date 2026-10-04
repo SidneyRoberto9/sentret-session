@@ -65,12 +65,6 @@ class SentretSecurityValidatorTest {
                 .toList();
     }
 
-    private List<ILoggingEvent> saltWarnings() {
-        return appender.list.stream()
-                .filter(event -> event.getFormattedMessage().contains("'ip-hash-salt'"))
-                .toList();
-    }
-
     /**
      * The heartbeat is the only thing that resets the idle window, and the client throttles it to
      * `heartbeat-interval`. Too close to `max-idle` and an active user gets logged out anyway.
@@ -195,27 +189,6 @@ class SentretSecurityValidatorTest {
         validate(properties);
 
         assertThat(sameSiteWarnings()).isEmpty();
-    }
-
-    @Test
-    void doesNotWarnAboutSaltWhenCookieIsNotSecure() {
-        SentretProperties properties = new SentretProperties();
-        properties.setCookieSecure(false);
-
-        validate(properties);
-
-        assertThat(saltWarnings()).isEmpty();
-    }
-
-    @Test
-    void doesNotWarnAboutSaltWhenCookieSecureWithCustomSalt() {
-        SentretProperties properties = new SentretProperties();
-        properties.setCookieSecure(true);
-        properties.setIpHashSalt("a-strong-custom-salt");
-
-        validate(properties);
-
-        assertThat(saltWarnings()).isEmpty();
     }
 
     @Test

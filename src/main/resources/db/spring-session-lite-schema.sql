@@ -9,7 +9,6 @@ CREATE TABLE spring_session_lite_sessions (
     user_id          VARCHAR(255) NOT NULL,
     email            VARCHAR(255),
     roles            VARCHAR(255),
-    ip_hash          VARCHAR(64)  NOT NULL,
     created_at       DATETIME(6),
     expires_at       DATETIME(6)  NOT NULL,
     last_accessed_at DATETIME(6),
@@ -26,7 +25,6 @@ CREATE TABLE spring_session_lite_sessions (
 --     user_id          VARCHAR(255) NOT NULL,
 --     email            VARCHAR(255),
 --     roles            VARCHAR(255),
---     ip_hash          VARCHAR(64)  NOT NULL,
 --     created_at       TIMESTAMP,
 --     expires_at       TIMESTAMP    NOT NULL,
 --     last_accessed_at TIMESTAMP

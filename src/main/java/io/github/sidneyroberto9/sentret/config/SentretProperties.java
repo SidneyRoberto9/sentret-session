@@ -13,11 +13,6 @@ import java.util.List;
 @ConfigurationProperties(prefix = "sentret")
 public class SentretProperties {
 
-    /**
-     * Default value of {@link #ipHashSalt}. If left unchanged while {@link #cookieSecure} is
-     * enabled, the library warns at startup (see SentretSecurityValidator).
-     */
-    public static final String DEFAULT_IP_HASH_SALT = "sentret";
 
     private boolean enabled = true;
 
@@ -41,21 +36,8 @@ public class SentretProperties {
 
     private int sessionIdLength = 21;
 
-    /**
-     * Salt used in HMAC-SHA256 IP hashing. Override in production with a strong secret.
-     */
-    private String ipHashSalt = DEFAULT_IP_HASH_SALT;
 
-    /**
-     * Trust X-Forwarded-For header for client IP resolution. Enable only behind a trusted proxy.
-     */
-    private boolean trustForwardedFor = false;
 
-    /**
-     * Number of trusted proxies that append to X-Forwarded-For. The client IP is taken at
-     * position (count from the right), never the spoofable left-most entry.
-     */
-    private int trustedProxyCount = 1;
 
     /**
      * Whether to update the last-accessed timestamp when activity is signalled. Since 2.1.1 the

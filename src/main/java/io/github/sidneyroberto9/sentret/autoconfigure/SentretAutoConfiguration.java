@@ -7,8 +7,6 @@ import io.github.sidneyroberto9.sentret.domain.SentretSessionRepository;
 import io.github.sidneyroberto9.sentret.scheduler.SentretCleanupTask;
 import io.github.sidneyroberto9.sentret.security.SentretAuthenticationFilter;
 import io.github.sidneyroberto9.sentret.service.SentretCookieManager;
-import io.github.sidneyroberto9.sentret.service.SentretIpHasher;
-import io.github.sidneyroberto9.sentret.service.SentretIpResolver;
 import io.github.sidneyroberto9.sentret.service.SentretService;
 import io.github.sidneyroberto9.sentret.service.SentretUserService;
 import io.github.sidneyroberto9.sentret.store.JpaSentretSessionStore;
@@ -62,18 +60,6 @@ public class SentretAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public SentretIpResolver ipResolver(SentretProperties properties) {
-        return new SentretIpResolver(properties);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
-    public SentretIpHasher ipHasher(SentretProperties properties) {
-        return new SentretIpHasher(properties);
-    }
-
-    @Bean
-    @ConditionalOnMissingBean
     public SentretCookieManager cookieManager(SentretProperties properties) {
         return new SentretCookieManager(properties);
     }
@@ -90,11 +76,9 @@ public class SentretAutoConfiguration {
             SentretProperties properties,
             SentretSessionStore store,
             SentretCookieManager cookieManager,
-            SentretIpResolver ipResolver,
-            SentretIpHasher ipHasher,
             ApplicationEventPublisher eventPublisher
     ) {
-        return new SentretService(ipHasher, store, properties, ipResolver, eventPublisher, cookieManager);
+        return new SentretService(store, properties, eventPublisher, cookieManager);
     }
 
     @Bean

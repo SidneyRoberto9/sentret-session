@@ -25,13 +25,10 @@ public class SampleController {
     private final SentretService sessionService;
 
     @PostMapping("/login")
-    public ResponseEntity<SentretUser> login(
-            @RequestBody LoginRequest body,
-            HttpServletRequest request,
-            HttpServletResponse response) {
+    public ResponseEntity<SentretUser> login(@RequestBody LoginRequest body, HttpServletResponse response) {
 
         List<String> roles = body.getRoles() == null ? List.of() : body.getRoles();
-        SentretUser user = sessionService.login(body.getUserId(), body.getEmail(), roles, request, response);
+        SentretUser user = sessionService.login(body.getUserId(), body.getEmail(), roles, response);
         return ResponseEntity.ok(user);
     }
 

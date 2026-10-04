@@ -4,8 +4,6 @@ import io.github.sidneyroberto9.sentret.config.SentretProperties;
 import io.github.sidneyroberto9.sentret.domain.SentretSession;
 import io.github.sidneyroberto9.sentret.security.SentretAuthenticationFilter;
 import io.github.sidneyroberto9.sentret.service.SentretCookieManager;
-import io.github.sidneyroberto9.sentret.service.SentretIpHasher;
-import io.github.sidneyroberto9.sentret.service.SentretIpResolver;
 import io.github.sidneyroberto9.sentret.service.SentretService;
 import io.github.sidneyroberto9.sentret.store.SentretSessionStore;
 import jakarta.servlet.http.Cookie;
@@ -44,11 +42,8 @@ import static org.mockito.Mockito.when;
  */
 class SentretAuthenticationFilterTest {
 
-    private static final String IP = "203.0.113.1";
-
     private SentretProperties properties;
     private SentretSessionStore store;
-    private SentretIpHasher ipHasher;
     private SentretCookieManager cookieManager;
     private SentretAuthenticationFilter filter;
 
@@ -57,12 +52,9 @@ class SentretAuthenticationFilterTest {
         properties = new SentretProperties();
         properties.setMaxIdle(Duration.ofMinutes(2));
         store = mock(SentretSessionStore.class);
-        ipHasher = new SentretIpHasher(properties);
         cookieManager = new SentretCookieManager(properties);
 
-        SentretIpResolver ipResolver = new SentretIpResolver(properties);
-        SentretService service = new SentretService(
-                ipHasher, store, properties, ipResolver, mock(ApplicationEventPublisher.class), cookieManager);
+        SentretService service = new SentretService(store, properties, mock(ApplicationEventPublisher.class), cookieManager);
 
         filter = new SentretAuthenticationFilter(service, cookieManager);
     }
@@ -82,7 +74,6 @@ class SentretAuthenticationFilterTest {
         session.setSessionId("sid");
         session.setUserId("user-1");
         session.setEmail("user@test.com");
-        session.setIpHash(ipHasher.hash(IP));
         session.setCreatedAt(now.minus(Duration.ofHours(1)));
         session.setExpiresAt(now.plus(Duration.ofHours(1)));
         session.setLastAccessedAt(now.minus(idle));
@@ -94,7 +85,6 @@ class SentretAuthenticationFilterTest {
 
     private MockHttpServletRequest request(String method, String uri) {
         MockHttpServletRequest request = new MockHttpServletRequest(method, uri);
-        request.setRemoteAddr(IP);
         request.setCookies(new Cookie(cookieManager.cookieName(), "sid"));
         return request;
     }

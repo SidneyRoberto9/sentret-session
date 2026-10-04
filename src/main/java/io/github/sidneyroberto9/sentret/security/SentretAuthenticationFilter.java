@@ -40,10 +40,10 @@ public class SentretAuthenticationFilter extends OncePerRequestFilter {
             return;
         }
 
-        Optional<SentretUser> user = sessionService.validate(sessionId, request);
+        Optional<SentretUser> user = sessionService.validate(sessionId);
 
         if (user.isEmpty()) {
-            // Invalid/expired/IP-mismatch cookie: do NOT short-circuit with 401 here — that would
+            // Invalid/expired cookie: do NOT short-circuit with 401 here — that would
             // also block permit-all paths (e.g. re-login). Drop the dead cookie, stay anonymous,
             // and let authorization + the AuthenticationEntryPoint decide the response.
             SecurityContextHolder.clearContext();

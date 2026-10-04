@@ -43,9 +43,6 @@ public class SentretSession {
     @Column(name = "roles")
     private String roles;
 
-    @Column(name = "ip_hash", nullable = false, length = 64)
-    private String ipHash;
-
     @Column(name = "created_at")
     private Instant createdAt;
 
