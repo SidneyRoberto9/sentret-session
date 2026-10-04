@@ -215,4 +215,28 @@ class SentretSecurityValidatorTest {
         assertThat(heartbeatWarnings()).isEmpty();
         assertThat(warningBeforeWarnings()).isEmpty();
     }
+
+    /** Browsers drop a SameSite=None cookie that is not Secure: login "works" but no session sticks. */
+    @Test
+    void warnsWhenSameSiteNoneCookieIsNotSecure() {
+        SentretProperties properties = new SentretProperties();
+        properties.setCookieSameSite("None");
+        properties.setCookieSecure(false);
+        properties.setCsrfEnabled(true);
+
+        validate(properties);
+
+        assertThat(appender.list).anyMatch(event -> event.getFormattedMessage().contains("requires 'cookie-secure=true'"));
+    }
+
+    @Test
+    void doesNotWarnAboutSecureWhenSameSiteNoneCookieIsSecure() {
+        SentretProperties properties = new SentretProperties();
+        properties.setCookieSameSite("None");
+        properties.setCsrfEnabled(true);
+
+        validate(properties);
+
+        assertThat(appender.list).noneMatch(event -> event.getFormattedMessage().contains("requires 'cookie-secure=true'"));
+    }
 }

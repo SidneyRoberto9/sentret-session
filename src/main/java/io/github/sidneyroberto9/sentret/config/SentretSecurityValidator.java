@@ -6,7 +6,10 @@ import org.springframework.beans.factory.InitializingBean;
 
 import java.time.Duration;
 
-/** Warns at startup about configurations that work but log active users out or weaken CSRF. */
+/**
+ * Warns at startup about configurations that start fine but lose the cookie, log active users out
+ * or weaken CSRF.
+ */
 @Slf4j
 @RequiredArgsConstructor
 public class SentretSecurityValidator implements InitializingBean {
@@ -21,6 +24,11 @@ public class SentretSecurityValidator implements InitializingBean {
         if ("None".equalsIgnoreCase(properties.getCookieSameSite()) && !properties.isCsrfEnabled()) {
             log.warn("[sentret] 'cookie-same-site=None' with CSRF disabled is unsafe for cookie-based auth. "
                     + "Enable 'sentret.csrf-enabled' or use SameSite=Lax/Strict.");
+        }
+
+        if ("None".equalsIgnoreCase(properties.getCookieSameSite()) && !properties.isCookieSecure()) {
+            log.warn("[sentret] 'cookie-same-site=None' requires 'cookie-secure=true': browsers drop a SameSite=None "
+                    + "cookie that is not Secure, so logins succeed but no session reaches the next request.");
         }
 
         if (properties.isIdleEnabled() && hub.getHeartbeatInterval().compareTo(maxIdle.dividedBy(2)) >= 0) {
