@@ -52,7 +52,7 @@ Estas decisões valem por cima do texto dos pontos abaixo, onde houver diferenç
 | #7 / #8 | **Apagar a task**; limpar expiradas no login | — |
 | #9 | **Enxugar**: `status`, `heartbeat`, `renew` em `sentret.hub.*`; sem `logout` | Com `csrf-enabled=true`, `heartbeat` e `renew` ficam isentos de CSRF (o client npm não manda o token). |
 | #10 | BOM do Boot importado + profile `boot4` | `spring-boot-starter-web` virou dependência opcional (a lib não impõe o Tomcat); as demais seguem com escopo normal, e o BOM da app consumidora decide as versões. Verificado no Boot 3.3.3, 3.5.15 e 4.1.1. |
-| #11 | 10 propriedades no núcleo + 6 em `sentret.hub.*` | `SentretProperties` continua JavaBean com Lombok (padrão do código, menos retrabalho nos testes). O validator mantém as checagens de tempo do hub, que continuam úteis. |
+| #11 | 11 propriedades no núcleo + 6 em `sentret.hub.*` | `SentretProperties` continua JavaBean com Lombok (padrão do código, menos retrabalho nos testes). O validator mantém as checagens de tempo do hub, que continuam úteis. |
 | #12 | `SecureRandom` + Base64 URL, 15 bytes → 20 caracteres | — |
 
 **Ordem e passos:** ver `docs/superpowers/plans/2026-10-04-sentret-refatoracao.md`.
@@ -69,14 +69,14 @@ Estas decisões valem por cima do texto dos pontos abaixo, onde houver diferenç
 | Código principal | 19 classes (antes 25), sem JPA, sem scheduler, sem utilitário próprio de ID |
 | Spring Boot | 3.3+ e 4.x — verificado no 3.3.3 (JDK 21), 3.5.15 e 4.1.1; o jar compilado no Boot 3 passa os testes no Boot 4 |
 | Bancos | Script único (`db/sentret-schema.sql`) testado em PostgreSQL 17, MySQL 8.4 e H2 |
-| Propriedades | 10 no núcleo + 6 em `sentret.hub.*`, nenhuma obrigatória |
+| Propriedades | 11 no núcleo (inclui `csrf-ignored-paths`, vinda da revisão) + 6 em `sentret.hub.*`, nenhuma obrigatória |
 | Hub | `GET status` (público), `POST heartbeat`, `POST renew` |
 | API pública | `SentretService`, `SentretUserService`, `SentretUser`, `SentretSessionStore`, 3 eventos |
-| Testes | 132, incluindo testes com servidor real (Tomcat) e com `SecurityFilterChain` própria |
+| Testes | 137, incluindo testes com servidor real (Tomcat) e com `SecurityFilterChain` própria |
 
 ### Correções feitas nas revisões (depois do plano)
 
-Três revisões independentes da branch encontraram problemas que a implementação do plano não
+Quatro revisões independentes da branch encontraram problemas que a implementação do plano não
 cobria. Todos foram corrigidos com um teste que falhava antes:
 
 | Problema | Correção |
@@ -96,6 +96,11 @@ cobria. Todos foram corrigidos com um teste que falhava antes:
 | App não-web com a lib no classpath não subia; bean `cookieManager` colidia com o da app | Auto-configuração só em app servlet; bean renomeado para `sentretCookieManager` |
 | Configurações de cookie que o navegador recusa passavam em silêncio | Avisos no startup: `SameSite=None` sem `Secure`, prefixos `__Host-`/`__Secure-` |
 | `config.loginUrl` saía como `null` | Omitido quando não configurado |
+| Com CSRF, o logout que o client npm chama dava 403 e a sessão da app sobrevivia | Nova propriedade `csrf-ignored-paths` |
+| `cors-allowed-origins` com `*` ou `https://*.x.com` dava 500/não casava | Origens aplicadas como padrões |
+| Probes em `/actuator/health` recebiam 401 na cadeia padrão | Health na lista pública padrão |
+| Sem a tabela, a app subia e só o login falhava | ERROR no startup |
+| A cadeia padrão só vencia a do Boot pela ordem alfabética dos pacotes | Ordenação explícita (`beforeName`) |
 
 ### Pendências conhecidas (fora desta versão)
 
