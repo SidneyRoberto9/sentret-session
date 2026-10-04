@@ -18,19 +18,19 @@ class SentretCookieManagerTest {
     }
 
     @Test
-    void cookieNameUsesDefaultPrefix() {
+    void cookieNameDefaultsToSentretSid() {
         SentretCookieManager manager = new SentretCookieManager(properties());
 
         assertThat(manager.cookieName()).isEqualTo("SENTRETSID");
     }
 
     @Test
-    void cookieNameAppliesCustomPrefix() {
+    void cookieNameCanCarryTheHostPrefix() {
         SentretProperties properties = properties();
-        properties.setCookiePrefix("__Host-");
+        properties.setCookieName("__Host-SID");
         SentretCookieManager manager = new SentretCookieManager(properties);
 
-        assertThat(manager.cookieName()).isEqualTo("__Host-SENTRETSID");
+        assertThat(manager.cookieName()).isEqualTo("__Host-SID");
     }
 
     @Test

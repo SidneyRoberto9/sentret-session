@@ -34,7 +34,7 @@ import org.springframework.web.bind.annotation.RestController;
  * alive forever.
  */
 @RestController
-@RequestMapping("${sentret.endpoints-base-path:/session}")
+@RequestMapping("${sentret.hub.base-path:/session}")
 @RequiredArgsConstructor
 public class SentretSessionController {
 
@@ -101,15 +101,17 @@ public class SentretSessionController {
     }
 
     private SessionStatusResponse.Config buildConfig() {
+        SentretProperties.Hub hub = properties.getHub();
+
         return new SessionStatusResponse.Config(
                 properties.getTtl().toMillis(),
                 properties.getMaxIdle() == null ? 0L : properties.getMaxIdle().toMillis(),
-                properties.getHeartbeatInterval().toMillis(),
-                properties.getStatusPollInterval().toMillis(),
-                properties.getWarningBefore().toMillis(),
-                properties.getLoginUrl(),
-                properties.getLogoutUrl(),
-                properties.getRedirectAfterExpiryUrl());
+                hub.getHeartbeatInterval().toMillis(),
+                hub.getStatusPollInterval().toMillis(),
+                hub.getWarningBefore().toMillis(),
+                hub.getLoginUrl(),
+                hub.getLogoutUrl(),
+                hub.getRedirectAfterExpiryUrl());
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

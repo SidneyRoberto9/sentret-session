@@ -19,8 +19,10 @@ import java.time.Instant;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -135,6 +137,14 @@ class SentretApplicationTests {
         login("user3b", "user3b@test.com");
 
         assertThat(sessionCount(old.getValue())).isZero();
+    }
+
+    @Test
+    void corsIsOffWhenNoOriginIsConfigured() throws Exception {
+        mockMvc.perform(options("/login")
+                        .header("Origin", "http://example.com")
+                        .header("Access-Control-Request-Method", "POST"))
+                .andExpect(header().doesNotExist("Access-Control-Allow-Origin"));
     }
 
     /**

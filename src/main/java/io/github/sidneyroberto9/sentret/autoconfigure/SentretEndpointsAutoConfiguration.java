@@ -25,7 +25,7 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 @ConditionalOnWebApplication(type = ConditionalOnWebApplication.Type.SERVLET)
-@ConditionalOnProperty(prefix = "sentret", name = "endpoints-enabled")
+@ConditionalOnProperty(prefix = "sentret.hub", name = "enabled")
 @EnableConfigurationProperties(SentretProperties.class)
 public class SentretEndpointsAutoConfiguration {
 

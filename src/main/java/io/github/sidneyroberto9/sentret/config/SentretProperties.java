@@ -8,110 +8,77 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * Every property has a safe default: the library works with no configuration at all.
+ */
 @Getter
 @Setter
 @ConfigurationProperties(prefix = "sentret")
 public class SentretProperties {
 
-
     private boolean enabled = true;
 
-    private String cookieName = "SENTRETSID";
-
+    /** Absolute session lifetime. */
     private Duration ttl = Duration.ofHours(8);
 
+    /**
+     * Inactivity window, measured from the last heartbeat. {@code null}, zero or negative disables
+     * it. Keep {@code hub.heartbeat-interval} well below it.
+     */
+    private Duration maxIdle = Duration.ofMinutes(30);
+
+    /** Session cookie name. Prefix it with {@code __Host-} (e.g. {@code __Host-SID}) to harden it. */
+    private String cookieName = "SENTRETSID";
+
+    /** Send the cookie over HTTPS only. Set {@code false} for local development over plain HTTP. */
     private boolean cookieSecure = true;
 
     private String cookieSameSite = "Lax";
 
-    private String cookiePath = "/";
-
+    /** Share the cookie across subdomains, e.g. {@code example.com}. */
     private String cookieDomain;
 
-    /**
-     * Optional cookie name prefix. Use {@code __Host-} or {@code __Secure-} to harden the
-     * cookie. {@code __Host-} requires cookieSecure=true, cookiePath="/" and no cookieDomain.
-     */
-    private String cookiePrefix = "";
-
-
-
-
-    /**
-     * Inactivity window, measured from the last heartbeat. {@code null}, zero or negative disables
-     * it. Keep {@link #heartbeatInterval} well below it.
-     */
-    private Duration maxIdle = Duration.ZERO;
-
-    /**
-     * How often the frontend client should send an activity heartbeat. Config-echo only — the
-     * library serves this via the session status endpoint and does not enforce it. Keep it
-     * comfortably below {@link #maxIdle}: since 2.1.1 the heartbeat is the only thing that resets
-     * the idle window, so a client that stops heartbeating goes idle even while in use.
-     */
-    private Duration heartbeatInterval = Duration.ofSeconds(60);
-
-    /**
-     * How often the frontend client should poll the session status endpoint. Config-echo only.
-     */
-    private Duration statusPollInterval = Duration.ofSeconds(30);
-
-    /**
-     * How long before idle/absolute expiry the frontend client should show a warning. Config-echo
-     * only.
-     */
-    private Duration warningBefore = Duration.ofSeconds(60);
-
-    /**
-     * URL the frontend client should redirect to for (re)authentication. Config-echo only.
-     */
-    private String loginUrl;
-
-    /**
-     * URL the frontend client should call/redirect to on explicit logout. Config-echo only.
-     */
-    private String logoutUrl;
-
-    /**
-     * URL the frontend client should redirect to after session expiry (idle or absolute).
-     * Config-echo only; falls back to {@link #loginUrl} when unset.
-     */
-    private String redirectAfterExpiryUrl;
-
-    /**
-     * Enable CSRF protection on the default security chain. Cookie-based auth is CSRF-sensitive;
-     * keep SameSite=Lax/Strict when this is disabled.
-     */
+    /** CSRF protection on the default security chain. Keep SameSite=Lax/Strict when disabled. */
     private boolean csrfEnabled = false;
 
-    /**
-     * Enable CORS on the default security chain (required for cross-origin cookie auth).
-     */
-    private boolean corsEnabled = false;
-
+    /** Origins allowed to call the API with the session cookie. CORS is on when this is not empty. */
     private List<String> corsAllowedOrigins = new ArrayList<>();
-
-    private List<String> corsAllowedMethods = new ArrayList<>(List.of("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"));
-
-    private boolean corsAllowCredentials = true;
-
 
     private List<String> permitAllPaths = new ArrayList<>(List.of("/login", "/auth/**", "/public/**"));
 
-    /**
-     * Register the opt-in {@code /session/*} REST endpoints (status/heartbeat/renew/logout).
-     * Off by default; existing consumers are unaffected until they explicitly enable this.
-     */
-    private boolean endpointsEnabled = false;
-
-    /**
-     * Base path for the opt-in session endpoints, used only when {@link #endpointsEnabled} is
-     * {@code true}.
-     */
-    private String endpointsBasePath = "/session";
+    private final Hub hub = new Hub();
 
     /** Whether {@link #maxIdle} is enforced: {@code null}, zero or negative disables it. */
     public boolean isIdleEnabled() {
         return maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
+    }
+
+    /**
+     * Inactivity hub consumed by the {@code @media4all/session-lite} client. Only read when
+     * {@code sentret.hub.enabled=true}.
+     */
+    @Getter
+    @Setter
+    public static class Hub {
+
+        private boolean enabled = false;
+
+        private String basePath = "/session";
+
+        /** How often the client sends a heartbeat. Echoed to the client. */
+        private Duration heartbeatInterval = Duration.ofSeconds(60);
+
+        /** How often the client polls the status. Echoed to the client. */
+        private Duration statusPollInterval = Duration.ofSeconds(30);
+
+        /** How long before expiry the client shows the warning. Echoed to the client. */
+        private Duration warningBefore = Duration.ofSeconds(60);
+
+        /** Where the client sends the user when the session ends. Echoed to the client. */
+        private String loginUrl;
+
+        private String logoutUrl;
+
+        private String redirectAfterExpiryUrl;
     }
 }

@@ -18,20 +18,13 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import org.springframework.beans.factory.annotation.Autowired;
 
 /**
- * Coverage for the two opt-in branches of
- * {@link io.github.sidneyroberto9.sentret.autoconfigure.SentretAutoConfiguration#sentretSecurityFilterChain}
- * that the rest of the suite never exercises: {@code csrf-enabled=true} and
- * {@code cors-enabled=true} (including the private {@code corsConfigurationSource} helper). The
- * {@code false}/default side of both branches, the {@code endpoints-enabled} permit-all branch,
- * and the {@link org.springframework.security.web.AuthenticationEntryPoint} 401 JSON body are
- * already covered by {@link SentretSessionControllerIntegrationTest} and
- * {@link io.github.sidneyroberto9.sentret.SentretApplicationTests}, which
- * both boot with the library defaults ({@code csrf-enabled=false}, {@code cors-enabled=false}).
+ * Coverage for the two opt-in branches of the default security chain: {@code csrf-enabled=true} and
+ * CORS, which turns on by itself when {@code cors-allowed-origins} is not empty. The default side of
+ * both (no CSRF, no CORS) is covered by {@link io.github.sidneyroberto9.sentret.SentretApplicationTests}.
  */
 @SpringBootTest(classes = SampleApplication.class)
 @TestPropertySource(properties = {
         "sentret.csrf-enabled=true",
-        "sentret.cors-enabled=true",
         "sentret.cors-allowed-origins=http://example.com"
 })
 class SentretAutoConfigurationIntegrationTest {

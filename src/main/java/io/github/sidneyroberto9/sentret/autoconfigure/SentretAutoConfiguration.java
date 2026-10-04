@@ -12,8 +12,8 @@ import org.springframework.boot.autoconfigure.AutoConfiguration;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
@@ -38,6 +38,8 @@ import java.util.List;
 @EnableConfigurationProperties(SentretProperties.class)
 @Import(SentretWebMvcConfiguration.class)
 public class SentretAutoConfiguration {
+
+    private static final List<String> CORS_ALLOWED_METHODS = List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
 
     @Bean
     @ConditionalOnMissingBean
@@ -90,15 +92,10 @@ public class SentretAutoConfiguration {
             SentretAuthenticationFilter sentretAuthenticationFilter,
             SentretProperties properties
     ) throws Exception {
-
-        // The opt-in /session/* endpoints controller lives in a separate @AutoConfiguration
-        // (SentretEndpointsAutoConfiguration) so it can be conditioned independently on
-        // endpoints-enabled. Bean-instantiation order across two distinct @AutoConfiguration
-        // classes isn't guaranteed by before=/after=, so the permit-all path for /session/status
-        // is wired here instead, in the one place that already builds the default chain.
         List<String> permitAll = new ArrayList<>(properties.getPermitAllPaths());
-        if (properties.isEndpointsEnabled()) {
-            permitAll.add(properties.getEndpointsBasePath() + "/status");
+
+        if (properties.getHub().isEnabled()) {
+            permitAll.add(properties.getHub().getBasePath() + "/status");
         }
 
         http
@@ -118,10 +115,10 @@ public class SentretAutoConfiguration {
             http.csrf(AbstractHttpConfigurer::disable);
         }
 
-        if (properties.isCorsEnabled()) {
-            http.cors(cors -> cors.configurationSource(corsConfigurationSource(properties)));
-        } else {
+        if (properties.getCorsAllowedOrigins().isEmpty()) {
             http.cors(AbstractHttpConfigurer::disable);
+        } else {
+            http.cors(cors -> cors.configurationSource(corsConfigurationSource(properties)));
         }
 
         return http.build();
@@ -130,9 +127,9 @@ public class SentretAutoConfiguration {
     private CorsConfigurationSource corsConfigurationSource(SentretProperties properties) {
         CorsConfiguration config = new CorsConfiguration();
         config.setAllowedOrigins(properties.getCorsAllowedOrigins());
-        config.setAllowedMethods(properties.getCorsAllowedMethods());
+        config.setAllowedMethods(CORS_ALLOWED_METHODS);
         config.setAllowedHeaders(List.of("*"));
-        config.setAllowCredentials(properties.isCorsAllowCredentials());
+        config.setAllowCredentials(true);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
         source.registerCorsConfiguration("/**", config);

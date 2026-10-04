@@ -73,7 +73,7 @@ class SentretSecurityValidatorTest {
     void warnsWhenHeartbeatIntervalEqualsHalfMaxIdle() {
         SentretProperties properties = new SentretProperties();
         properties.setMaxIdle(Duration.ofMinutes(2));
-        properties.setHeartbeatInterval(Duration.ofMinutes(1)); // == maxIdle / 2
+        properties.getHub().setHeartbeatInterval(Duration.ofMinutes(1)); // == maxIdle / 2
 
         validate(properties);
 
@@ -84,7 +84,7 @@ class SentretSecurityValidatorTest {
     void warnsWhenHeartbeatIntervalExceedsHalfMaxIdle() {
         SentretProperties properties = new SentretProperties();
         properties.setMaxIdle(Duration.ofMinutes(1));
-        properties.setHeartbeatInterval(Duration.ofSeconds(60)); // == maxIdle: cannot ever rescue
+        properties.getHub().setHeartbeatInterval(Duration.ofSeconds(60)); // == maxIdle: cannot ever rescue
 
         validate(properties);
 
@@ -95,7 +95,7 @@ class SentretSecurityValidatorTest {
     void doesNotWarnWhenHeartbeatIntervalIsWellBelowMaxIdle() {
         SentretProperties properties = new SentretProperties();
         properties.setMaxIdle(Duration.ofMinutes(10));
-        properties.setHeartbeatInterval(Duration.ofMinutes(1));
+        properties.getHub().setHeartbeatInterval(Duration.ofMinutes(1));
 
         validate(properties);
 
@@ -104,8 +104,9 @@ class SentretSecurityValidatorTest {
 
     @Test
     void doesNotWarnWhenMaxIdleDisabled() {
-        SentretProperties properties = new SentretProperties(); // maxIdle = ZERO
-        properties.setHeartbeatInterval(Duration.ofMinutes(30));
+        SentretProperties properties = new SentretProperties();
+        properties.setMaxIdle(Duration.ZERO);
+        properties.getHub().setHeartbeatInterval(Duration.ofMinutes(30));
 
         validate(properties);
 
@@ -120,7 +121,7 @@ class SentretSecurityValidatorTest {
     void warnsWhenWarningBeforeCoversWholeIdleWindow() {
         SentretProperties properties = new SentretProperties();
         properties.setMaxIdle(Duration.ofMinutes(1));
-        properties.setWarningBefore(Duration.ofSeconds(60)); // == maxIdle
+        properties.getHub().setWarningBefore(Duration.ofSeconds(60)); // == maxIdle
 
         validate(properties);
 
@@ -131,7 +132,7 @@ class SentretSecurityValidatorTest {
     void doesNotWarnWhenWarningBeforeIsBelowMaxIdle() {
         SentretProperties properties = new SentretProperties();
         properties.setMaxIdle(Duration.ofMinutes(2));
-        properties.setWarningBefore(Duration.ofSeconds(30));
+        properties.getHub().setWarningBefore(Duration.ofSeconds(30));
 
         validate(properties);
 
@@ -146,8 +147,8 @@ class SentretSecurityValidatorTest {
     @Test
     void warnsWhenStatusPollIntervalIsNotBelowWarningBefore() {
         SentretProperties properties = new SentretProperties();
-        properties.setWarningBefore(Duration.ofSeconds(60));
-        properties.setStatusPollInterval(Duration.ofSeconds(60));
+        properties.getHub().setWarningBefore(Duration.ofSeconds(60));
+        properties.getHub().setStatusPollInterval(Duration.ofSeconds(60));
 
         validate(properties);
 
@@ -157,8 +158,8 @@ class SentretSecurityValidatorTest {
     @Test
     void doesNotWarnWhenStatusPollIntervalIsWellBelowWarningBefore() {
         SentretProperties properties = new SentretProperties();
-        properties.setWarningBefore(Duration.ofSeconds(120));
-        properties.setStatusPollInterval(Duration.ofSeconds(30));
+        properties.getHub().setWarningBefore(Duration.ofSeconds(120));
+        properties.getHub().setStatusPollInterval(Duration.ofSeconds(30));
 
         validate(properties);
 

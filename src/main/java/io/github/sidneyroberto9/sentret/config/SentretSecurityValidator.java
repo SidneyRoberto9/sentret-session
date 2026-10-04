@@ -6,6 +6,7 @@ import org.springframework.beans.factory.InitializingBean;
 
 import java.time.Duration;
 
+/** Warns at startup about configurations that work but log active users out or weaken CSRF. */
 @Slf4j
 @RequiredArgsConstructor
 public class SentretSecurityValidator implements InitializingBean {
@@ -14,23 +15,30 @@ public class SentretSecurityValidator implements InitializingBean {
 
     @Override
     public void afterPropertiesSet() {
-        if ("None".equalsIgnoreCase(properties.getCookieSameSite()) && !properties.isCsrfEnabled()) {
-            log.warn("[sentret] 'cookie-same-site=None' with CSRF disabled is unsafe for " + "cookie-based auth. Enable 'sentret.csrf-enabled' or use SameSite=Lax/Strict.");
-        }
-
+        SentretProperties.Hub hub = properties.getHub();
         Duration maxIdle = properties.getMaxIdle();
-        boolean idleEnabled = maxIdle != null && !maxIdle.isZero() && !maxIdle.isNegative();
 
-        if (idleEnabled && properties.getHeartbeatInterval().compareTo(maxIdle.dividedBy(2)) >= 0) {
-            log.warn("[sentret] 'heartbeat-interval' ({}) is >= half of 'max-idle' ({}). " + "The heartbeat is the only thing that resets the idle window, and the client throttles it to " + "this interval — so an active user can be logged out anyway, and the warning can show while " + "they are still working. Set 'sentret.heartbeat-interval' well below 'max-idle' " + "(a quarter of it or less).", properties.getHeartbeatInterval(), maxIdle);
+        if ("None".equalsIgnoreCase(properties.getCookieSameSite()) && !properties.isCsrfEnabled()) {
+            log.warn("[sentret] 'cookie-same-site=None' with CSRF disabled is unsafe for cookie-based auth. "
+                    + "Enable 'sentret.csrf-enabled' or use SameSite=Lax/Strict.");
         }
 
-        if (properties.getStatusPollInterval().compareTo(properties.getWarningBefore()) >= 0) {
-            log.warn("[sentret] 'status-poll-interval' ({}) is >= 'warning-before' ({}). The client's " + "status poll is the only thing that raises the inactivity warning, so at this cadence a " + "session can go from outside the warning window straight to expired without the user ever " + "seeing the card. Set 'sentret.status-poll-interval' well below 'warning-before'.", properties.getStatusPollInterval(), properties.getWarningBefore());
+        if (properties.isIdleEnabled() && hub.getHeartbeatInterval().compareTo(maxIdle.dividedBy(2)) >= 0) {
+            log.warn("[sentret] 'heartbeat-interval' ({}) is >= half of 'max-idle' ({}). The heartbeat is the only "
+                    + "thing that resets the idle window, so an active user can be logged out anyway. Set "
+                    + "'sentret.hub.heartbeat-interval' to a quarter of 'max-idle' or less.", hub.getHeartbeatInterval(), maxIdle);
         }
 
-        if (idleEnabled && properties.getWarningBefore().compareTo(maxIdle) >= 0) {
-            log.warn("[sentret] 'warning-before' ({}) is >= 'max-idle' ({}), so the inactivity " + "warning is inside its window from the moment the session starts and the client shows it " + "immediately. Set 'sentret.warning-before' below 'max-idle'.", properties.getWarningBefore(), maxIdle);
+        if (hub.getStatusPollInterval().compareTo(hub.getWarningBefore()) >= 0) {
+            log.warn("[sentret] 'status-poll-interval' ({}) is >= 'warning-before' ({}). A session can go from outside "
+                    + "the warning window straight to expired without the user ever seeing the warning. Set "
+                    + "'sentret.hub.status-poll-interval' well below 'warning-before'.", hub.getStatusPollInterval(), hub.getWarningBefore());
+        }
+
+        if (properties.isIdleEnabled() && hub.getWarningBefore().compareTo(maxIdle) >= 0) {
+            log.warn("[sentret] 'warning-before' ({}) is >= 'max-idle' ({}), so the client shows the inactivity "
+                    + "warning as soon as the session starts. Set 'sentret.hub.warning-before' below 'max-idle'.",
+                    hub.getWarningBefore(), maxIdle);
         }
     }
 }

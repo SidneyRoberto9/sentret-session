@@ -15,7 +15,7 @@ public class SentretCookieManager {
     private final SentretProperties properties;
 
     public String cookieName() {
-        return properties.getCookiePrefix() + properties.getCookieName();
+        return properties.getCookieName();
     }
 
     public String read(HttpServletRequest request) {
@@ -49,7 +49,7 @@ public class SentretCookieManager {
                 .httpOnly(true)
                 .secure(properties.isCookieSecure())
                 .sameSite(properties.getCookieSameSite())
-                .path(properties.getCookiePath())
+                .path("/")
                 .maxAge(maxAge);
 
         if (properties.getCookieDomain() != null) {

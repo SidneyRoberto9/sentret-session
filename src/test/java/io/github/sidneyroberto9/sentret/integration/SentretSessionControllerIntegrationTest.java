@@ -31,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 @SpringBootTest(classes = SampleApplication.class)
 @TestPropertySource(properties = {
-        "sentret.endpoints-enabled=true",
+        "sentret.hub.enabled=true",
         "sentret.max-idle=10m"
 })
 class SentretSessionControllerIntegrationTest {
