@@ -120,11 +120,11 @@ public class SentretService {
     }
 
     /**
-     * The row for exactly this id: malformed ids never reach the store, and a row whose id differs
+     * The row for exactly this id: null and malformed ids never reach the store, and a row whose id differs
      * only in case (case-folding collations) is not a match.
      */
     private Optional<SentretSession> find(String sessionId) {
-        if (!SESSION_ID_FORMAT.matcher(sessionId).matches()) {
+        if (sessionId == null || !SESSION_ID_FORMAT.matcher(sessionId).matches()) {
             return Optional.empty();
         }
 

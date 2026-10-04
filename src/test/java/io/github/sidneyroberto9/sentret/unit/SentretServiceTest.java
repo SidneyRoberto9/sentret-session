@@ -125,6 +125,14 @@ class SentretServiceTest {
 
     /** Anything that is not a 20-char Base64 URL id is rejected before reaching the database. */
     @Test
+    void nullIdsAreTreatedAsUnknownSessions() {
+        assertThat(service.validate(null)).isEmpty();
+        service.logout((String) null);
+
+        verifyNoInteractions(store);
+    }
+
+    @Test
     void validateRejectsMalformedIdsWithoutTouchingTheStore() {
         assertThat(service.validate("x".repeat(100))).isEmpty();
         assertThat(service.validate("short")).isEmpty();
