@@ -40,6 +40,7 @@ Criar a tabela nova com `db/sentret-schema.sql` (ver README). A antiga pode ser 
 | `SpringSessionLiteUser.roles()` | removido: busque as roles na sua app pelo `userId` |
 | `@SpringSessionLiteCurrentSession SpringSessionLiteUser user` | `@AuthenticationPrincipal SentretUser user` |
 | `validate(sessionId, request)` | `validate(sessionId)` |
+| `renew(request, response)` | `renew(user, response)` (principal já validado) ou `renew(sessionId)` |
 | `deleteExpired()`, `remaining(...)` | removidos |
 | `SessionRenewedEvent(userId, sessionId, renewedAt, absoluteRemainingMs, idleRemainingMs)` | `SentretSessionRenewedEvent(userId, sessionId, renewedAt)` |
 | `SessionDestroyedEvent(sessionId)` | `SentretSessionDestroyedEvent(userId, sessionId)` |
