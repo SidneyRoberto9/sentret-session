@@ -21,6 +21,16 @@ Sucede o `spring-session-lite` 3.0.0. Guia completo em `MIGRATION.md`.
 - Hub com Controller só HTTP, `SentretHubStatusService` e DTOs em `hub.dto.response`.
 - Compatível com Spring Boot 3.5 e 4.x (profile `boot4`).
 
+### Segurança e robustez
+- `SentretUser#sessionId` nunca é serializado (é o valor do cookie `HttpOnly`).
+- Cookie fora do formato (20 caracteres Base64 URL) é recusado sem consulta ao banco.
+- O ID precisa bater exatamente com o do banco, mesmo em collations que ignoram maiúsculas/minúsculas.
+- `max-idle` só é aplicado com o hub ligado; sem hub vale apenas o `ttl`.
+- Heartbeat e renew sem sessão respondem 401 (nunca 500), inclusive com `SecurityFilterChain` própria.
+- Falha na limpeza de expiradas não derruba o login (só loga um aviso).
+- Hub não impede o startup quando `sentret.enabled=false`.
+- `renew` do hub parte do principal já validado, sem reler a sessão.
+
 ### Removido
 - Vínculo com IP (`ip-hash-salt`, `trust-forwarded-for`, `trusted-proxy-count`).
 - Roles na sessão.
