@@ -114,12 +114,12 @@ Sobe para o Central Portal no estado `VALIDATED` (lembre: `autoPublish=false`).
 ```bash
 rtk git add -A
 rtk git commit -m "chore(release): bump version to 1.0.1"
-rtk git tag -a sentret-v1.0.1 -m "sentret-session 1.0.1"
+rtk git tag -a v1.0.1 -m "sentret-session 1.0.1"
 rtk git push origin master --tags
 ```
 
-> Use o prefixo `sentret-v` nas tags: `v1.0.0` e `v1.0.1` já existem neste repositório e são do
-> artefato antigo (`spring-session-lite`).
+> As tags `vX.Y.Z` deste repositório são só da `sentret-session`: as do artefato antigo
+> (`spring-session-lite` 1.0.0–3.0.0) foram removidas quando o projeto foi renomeado.
 
 ---
 
