@@ -24,6 +24,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.HttpStatusEntryPoint;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.web.csrf.CookieCsrfTokenRepository;
+import org.springframework.security.web.csrf.CsrfTokenRequestAttributeHandler;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
@@ -108,7 +109,9 @@ public class SentretAutoConfiguration {
                 .addFilterBefore(sentretAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         if (properties.isCsrfEnabled()) {
-            http.csrf(csrf -> csrf.csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse()));
+            http.csrf(csrf -> csrf
+                    .csrfTokenRepository(CookieCsrfTokenRepository.withHttpOnlyFalse())
+                    .csrfTokenRequestHandler(spaCsrfTokenRequestHandler()));
         } else {
             http.csrf(AbstractHttpConfigurer::disable);
         }
@@ -120,6 +123,18 @@ public class SentretAutoConfiguration {
         }
 
         return http.build();
+    }
+
+    /**
+     * SPA flow (Spring Security docs, "Single-Page Applications"): the client reads the
+     * XSRF-TOKEN cookie and sends its raw value in X-XSRF-TOKEN. The default handler expects a
+     * masked (XOR) token and defers loading it, so the cookie would never be written and the raw
+     * value would be rejected. Loading the token on every request keeps the cookie present.
+     */
+    private static CsrfTokenRequestAttributeHandler spaCsrfTokenRequestHandler() {
+        CsrfTokenRequestAttributeHandler handler = new CsrfTokenRequestAttributeHandler();
+        handler.setCsrfRequestAttributeName(null);
+        return handler;
     }
 
     private CorsConfigurationSource corsConfigurationSource(SentretProperties properties) {

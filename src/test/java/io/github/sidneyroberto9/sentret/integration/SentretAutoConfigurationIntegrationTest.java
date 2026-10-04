@@ -1,14 +1,19 @@
 package io.github.sidneyroberto9.sentret.integration;
 
 import io.github.sidneyroberto9.sentret.sample.SampleApplication;
+import jakarta.servlet.http.Cookie;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.TestPropertySource;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.web.context.WebApplicationContext;
 
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.security.test.web.servlet.setup.SecurityMockMvcConfigurers.springSecurity;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.options;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -45,6 +50,24 @@ class SentretAutoConfigurationIntegrationTest {
         // authorization and rejects any POST lacking a valid CSRF token once csrf-enabled=true.
         mockMvc.perform(post("/login"))
                 .andExpect(status().isForbidden());
+    }
+
+    /**
+     * The flow a SPA uses with csrf-enabled: any response hands out the XSRF-TOKEN cookie, and the
+     * raw cookie value sent back in the X-XSRF-TOKEN header is accepted.
+     */
+    @Test
+    void csrfEnabledLetsASpaReadTheTokenCookieAndSendItBack() throws Exception {
+        MvcResult first = mockMvc.perform(get("/public/ping")).andReturn();
+        Cookie xsrf = first.getResponse().getCookie("XSRF-TOKEN");
+        assertThat(xsrf).isNotNull();
+
+        mockMvc.perform(post("/login")
+                        .cookie(xsrf)
+                        .header("X-XSRF-TOKEN", xsrf.getValue())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userId\":\"u1\",\"email\":\"u1@test.com\"}"))
+                .andExpect(status().isOk());
     }
 
     @Test
