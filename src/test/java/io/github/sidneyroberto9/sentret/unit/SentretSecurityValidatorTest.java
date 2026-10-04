@@ -239,4 +239,41 @@ class SentretSecurityValidatorTest {
 
         assertThat(appender.list).noneMatch(event -> event.getFormattedMessage().contains("requires 'cookie-secure=true'"));
     }
+
+    private boolean warnedAboutPrefix() {
+        return appender.list.stream().anyMatch(event -> event.getFormattedMessage().contains("cookie prefix"));
+    }
+
+    /** Browsers drop a __Host- cookie that has a Domain or is not Secure, and a __Secure- one that is not Secure. */
+    @Test
+    void warnsWhenHostPrefixedCookieHasADomain() {
+        SentretProperties properties = new SentretProperties();
+        properties.setCookieName("__Host-SID");
+        properties.setCookieDomain("example.com");
+
+        validate(properties);
+
+        assertThat(warnedAboutPrefix()).isTrue();
+    }
+
+    @Test
+    void warnsWhenPrefixedCookieIsNotSecure() {
+        SentretProperties properties = new SentretProperties();
+        properties.setCookieName("__Secure-SID");
+        properties.setCookieSecure(false);
+
+        validate(properties);
+
+        assertThat(warnedAboutPrefix()).isTrue();
+    }
+
+    @Test
+    void doesNotWarnForAValidHostPrefixedCookie() {
+        SentretProperties properties = new SentretProperties();
+        properties.setCookieName("__Host-SID");
+
+        validate(properties);
+
+        assertThat(warnedAboutPrefix()).isFalse();
+    }
 }

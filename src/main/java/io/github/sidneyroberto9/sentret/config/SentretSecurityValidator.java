@@ -33,6 +33,16 @@ public class SentretSecurityValidator implements InitializingBean {
                     + "cookie that is not Secure, so logins succeed but no session reaches the next request.");
         }
 
+        String cookieName = properties.getCookieName();
+        boolean hostPrefixed = cookieName.startsWith("__Host-");
+        boolean prefixed = hostPrefixed || cookieName.startsWith("__Secure-");
+
+        if ((prefixed && !properties.isCookieSecure()) || (hostPrefixed && properties.getCookieDomain() != null)) {
+            log.warn("[sentret] The '{}' cookie prefix is not satisfied: browsers drop a __Secure- cookie that is not "
+                    + "Secure and a __Host- cookie that is not Secure or has a Domain. Set 'sentret.cookie-secure=true' "
+                    + "and, for __Host-, remove 'sentret.cookie-domain'.", cookieName);
+        }
+
         if (properties.isIdleEnabled() && hub.getHeartbeatInterval().compareTo(maxIdle.dividedBy(2)) >= 0) {
             log.warn("[sentret] 'heartbeat-interval' ({}) is >= half of 'max-idle' ({}). The heartbeat is the only "
                     + "thing that resets the idle window, so an active user can be logged out anyway. Set "
