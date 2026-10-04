@@ -66,7 +66,7 @@ cada aplicação faz logout pelo próprio endpoint, chamando `SentretService.log
 | Propriedade | Padrão | Uso |
 |---|---|---|
 | `sentret.hub.enabled` | `false` | Liga os três endpoints. |
-| `sentret.hub.base-path` | `/session` | Prefixo dos endpoints. |
+| `sentret.hub.base-path` | `/session` | Prefixo dos endpoints. **Precisa terminar em `/session`**: o client monta `hubBase + "/session/status"`. |
 | `sentret.hub.heartbeat-interval` | `60s` | Intervalo mínimo entre heartbeats do client. |
 | `sentret.hub.status-poll-interval` | `30s` | Intervalo do poll de status do client. |
 | `sentret.hub.warning-before` | `60s` | Quanto antes da expiração o client mostra o aviso. |
@@ -114,7 +114,12 @@ liberados, sem sessão válida eles respondem 401 do mesmo jeito).
 
 - **Em produção**, as UIs e o hub costumam ficar atrás do mesmo proxy, numa só origem: o cookie do
   hub trafega sem configuração extra.
-- **Em desenvolvimento local**, cada UI roda numa porta diferente do hub, então as chamadas viram
-  cross-origin. Isso exige `sentret.cors-allowed-origins` no hub, credenciais no client e
-  `sentret.cookie-same-site=None` — que exige `Secure` (HTTPS), normalmente ausente em `localhost`.
-  Na prática, sem HTTPS local o cookie do hub pode não trafegar.
+- **Em desenvolvimento local**, cada UI roda numa porta diferente do hub: as chamadas são
+  cross-origin (exigem `sentret.cors-allowed-origins` no hub e credenciais no client), mas continuam
+  **same-site** — portas diferentes de `localhost` são o mesmo site. O padrão `SameSite=Lax` basta;
+  use `sentret.cookie-secure=false` em HTTP.
+- **Domínios diferentes** (ex.: `app.empresa.com` e `api.outra.com`) exigem `SameSite=None` +
+  `Secure`. Com `csrf-enabled`, o front só consegue ler o cookie `XSRF-TOKEN` se UI e API dividirem
+  um domínio (`sentret.cookie-domain`).
+- **CSRF com o hub:** com `csrf-enabled=true`, a cadeia padrão isenta `heartbeat` e `renew`, que o
+  client envia sem header de CSRF. Forjar um deles só mantém viva uma sessão que já existe.
