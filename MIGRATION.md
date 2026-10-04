@@ -56,6 +56,33 @@ Criar a tabela nova com `db/sentret-schema.sql` (ver README). A antiga pode ser 
 - **Hub:** `POST /logout` não existe mais (o client nunca usou). O `config` do status traz só
   `heartbeatIntervalMs`, `statusPollIntervalMs`, `warningBeforeMs` e `loginUrl`.
 - **`renew`** não ressuscita sessão expirada (nem por inatividade).
+- **Dependência web:** a lib não puxa mais o `spring-boot-starter-web`; a app precisa declará-lo
+  (todas as apps web já declaram).
+
+## 6. `sliding-expiration` (eleva-helpdesk usa)
+
+Não existe mais. Antes, cada request empurrava `expires_at` para frente. Agora o `ttl` é um limite
+absoluto. Para manter o comportamento antigo, escolha um:
+
+- Aumentar o `ttl` para o período máximo aceitável (ex.: `sentret.ttl=7d` continua valendo 7 dias,
+  mas a partir do login).
+- Ligar o hub (`sentret.hub.enabled=true` + client npm) e usar `max-idle`: a sessão vive enquanto
+  houver atividade, até o `ttl`.
+- Chamar `sentretService.renew(sessionId)` no ponto da app que representa atividade (ex.: um
+  interceptor) — cada chamada faz um `UPDATE`, então limite a frequência.
+
+## 7. Spring Boot
+
+A lib roda no Spring Boot **3.3+** e **4.x** (verificada no 3.3.3, 3.5.15 e 4.1.1). Apps no 3.3.3
+não precisam subir de versão.
+
+## 8. `SecurityFilterChain` própria (todas as apps m4all)
+
+Confira em `docs/01-instalacao-e-uso.md` §6.2:
+
+- `.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()` na sua cadeia;
+- `FilterRegistrationBean` do filtro desligado (opcional; as apps m4all já têm);
+- com o hub: `GET {hub.base-path}/status` liberado e, com CSRF, `heartbeat`/`renew` isentos.
 
 ---
 
