@@ -15,7 +15,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
@@ -36,7 +35,6 @@ import java.util.List;
 @ConditionalOnClass({JdbcTemplate.class, SecurityFilterChain.class})
 @ConditionalOnProperty(prefix = "sentret", name = "enabled", matchIfMissing = true)
 @EnableConfigurationProperties(SentretProperties.class)
-@Import(SentretWebMvcConfiguration.class)
 public class SentretAutoConfiguration {
 
     private static final List<String> CORS_ALLOWED_METHODS = List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS");
