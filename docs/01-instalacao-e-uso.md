@@ -59,6 +59,11 @@ CREATE INDEX idx_sentret_sessions_expires_at ON sentret_sessions (expires_at);
 Os tempos são epoch em milissegundos (`BIGINT`): sem conversão de fuso horário e sem o limite de
 2038.
 
+O ID da sessão diferencia maiúsculas de minúsculas. No MySQL/MariaDB declare `session_id` com
+`CHARACTER SET ascii COLLATE ascii_bin`; no SQL Server, com `COLLATE Latin1_General_BIN2`
+(PostgreSQL e H2 já diferenciam). Mesmo sem isso a lib recusa um registro cujo ID só difere na
+caixa, então continua seguro — só com menos combinações efetivas.
+
 ---
 
 ## 4. Configuração mínima

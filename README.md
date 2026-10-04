@@ -39,6 +39,11 @@ CREATE INDEX idx_sentret_sessions_user_id ON sentret_sessions (user_id);
 CREATE INDEX idx_sentret_sessions_expires_at ON sentret_sessions (expires_at);
 ```
 
+Session ids are case-sensitive. On MySQL/MariaDB declare `session_id` with
+`CHARACTER SET ascii COLLATE ascii_bin`, on SQL Server with `COLLATE Latin1_General_BIN2`
+(PostgreSQL and H2 are case-sensitive already). The library also rejects a row whose id differs only
+in case, so a case-insensitive column is safe, just with fewer effective bits.
+
 ## Quickstart
 
 ```java
