@@ -7,7 +7,7 @@ foram no hub e no SSE, que eram opt-in; os passos abaixo cobrem os dois casos.
 
 ```xml
 <artifactId>sentret-session</artifactId>
-<version>1.0.0</version>
+<version>1.0.1</version>
 ```
 
 A app precisa de `JdbcTemplate` (`spring-boot-starter-jdbc` ou `spring-boot-starter-data-jpa`).

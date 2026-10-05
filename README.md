@@ -13,7 +13,7 @@ and an optional hub serves the inactivity endpoints used by the `@media4all/sess
 <dependency>
     <groupId>io.github.sidneyroberto9</groupId>
     <artifactId>sentret-session</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 ```
 

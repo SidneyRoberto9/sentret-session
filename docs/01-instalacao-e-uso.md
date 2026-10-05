@@ -34,7 +34,7 @@ Autenticação por sessão com cookie, leve, para Spring Boot 3 e 4:
 <dependency>
     <groupId>io.github.sidneyroberto9</groupId>
     <artifactId>sentret-session</artifactId>
-    <version>1.0.0</version>
+    <version>1.0.1</version>
 </dependency>
 ```
 
