@@ -6,6 +6,22 @@ livremente, o [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/); o ver
 
 ---
 
+## [1.0.1]
+
+### Adicionado
+- A tabela `sentret_sessions` é criada no startup quando não existe, com os dois índices e a collation
+  case-sensitive do banco (`ascii_bin` no MySQL/MariaDB, `Latin1_General_BIN2` no SQL Server). Não
+  precisa mais de Flyway/Liquibase nem de SQL à mão. Tabela existente não é tocada; duas instâncias
+  subindo juntas não conflitam.
+- `sentret.create-table` (padrão `true`): `false` volta ao comportamento da 1.0.0 (só loga ERROR se a
+  tabela faltar), para quem controla o schema.
+
+### Alterado
+- Sem permissão de `CREATE TABLE`, a lib loga um ERROR e o startup segue (nada quebra que já não
+  estivesse quebrado: sem a tabela todo login falhava).
+
+---
+
 ## [1.0.0] - Sentret
 
 Primeira versão com o nome **Sentret** (artefato novo: `io.github.sidneyroberto9:sentret-session`).
