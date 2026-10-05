@@ -14,12 +14,15 @@ A app precisa de `JdbcTemplate` (`spring-boot-starter-jdbc` ou `spring-boot-star
 
 ## 2. Banco
 
-> **Obrigatório em cada ambiente.** A tabela **não** é criada sozinha: antes o Hibernate
-> (`ddl-auto=update`) criava a tabela da entidade; agora a lib usa SQL puro. Sem a tabela a app sobe
-> normalmente, mas todo login dá 500 — a lib loga um ERROR no startup avisando.
+A partir da **1.0.1** a tabela nova `sentret_sessions` é criada sozinha no startup, se não existir
+(com os índices e a collation certa do banco). Não precisa de Liquibase, Flyway nem SQL à mão.
 
-Criar a tabela nova com `db/sentret-schema.sql` (ver README). A antiga pode ser apagada
-(`DROP TABLE spring_session_lite_sessions`): todo usuário faz login de novo uma vez.
+> **Na 1.0.0** a tabela **não** era criada sozinha: sem ela a app sobe, mas todo login dá 500.
+> Prefira a 1.0.1.
+
+Se o schema é controlado por Flyway/Liquibase ou o usuário do banco não tem `CREATE TABLE`, use
+`sentret.create-table=false` e crie a tabela com `db/sentret-schema.sql` (ver README). A antiga pode
+ser apagada (`DROP TABLE spring_session_lite_sessions`): todo usuário faz login de novo uma vez.
 
 ## 3. Propriedades
 

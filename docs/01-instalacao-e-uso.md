@@ -40,8 +40,10 @@ Autenticação por sessão com cookie, leve, para Spring Boot 3 e 4:
 
 ### 3.1. Tabela
 
-Rode uma vez (Flyway, Liquibase ou à mão). O mesmo SQL serve MySQL, MariaDB, PostgreSQL,
-SQL Server e H2, e vai dentro do jar em `db/sentret-schema.sql`:
+Não precisa fazer nada: no startup a lib cria a tabela `sentret_sessions` se ela não existir
+(MySQL, MariaDB, PostgreSQL, SQL Server e H2) e não mexe numa que já existe. Se o schema é seu
+(Flyway, Liquibase ou um usuário de banco sem `CREATE TABLE`), use `sentret.create-table=false` e
+rode o SQL abaixo, que também vai dentro do jar em `db/sentret-schema.sql`:
 
 ```sql
 CREATE TABLE sentret_sessions (
@@ -63,7 +65,8 @@ Os tempos são epoch em milissegundos (`BIGINT`): sem conversão de fuso horári
 O ID da sessão diferencia maiúsculas de minúsculas. No MySQL/MariaDB declare `session_id` com
 `CHARACTER SET ascii COLLATE ascii_bin`; no SQL Server, com `COLLATE Latin1_General_BIN2`
 (PostgreSQL e H2 já diferenciam). Mesmo sem isso a lib recusa um registro cujo ID só difere na
-caixa, então continua seguro — só com menos combinações efetivas.
+caixa, então continua seguro — só com menos combinações efetivas. A criação automática já usa a
+collation certa para cada banco.
 
 ---
 

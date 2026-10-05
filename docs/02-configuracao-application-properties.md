@@ -1,6 +1,6 @@
 # Sentret — Configuração (`application.properties`)
 
-Todas as propriedades usam o prefixo `sentret` (11 no núcleo, 6 do hub) e **todas têm padrão**: a lib funciona sem nenhuma
+Todas as propriedades usam o prefixo `sentret` (12 no núcleo, 6 do hub) e **todas têm padrão**: a lib funciona sem nenhuma
 configuração.
 
 ---
@@ -10,6 +10,7 @@ configuração.
 | Propriedade | Tipo | Padrão | Descrição |
 |---|---|---|---|
 | `sentret.enabled` | `boolean` | `true` | Desliga a lib inteira. |
+| `sentret.create-table` | `boolean` | `true` | Cria a tabela `sentret_sessions` no startup quando ela não existe (com os índices e a collation case-sensitive do banco). `false` quando o schema é do Flyway/Liquibase ou o usuário do banco não tem `CREATE TABLE`: aí a falta da tabela só gera um ERROR no log. |
 | `sentret.ttl` | `Duration` | `8h` | Tempo de vida absoluto da sessão. |
 | `sentret.max-idle` | `Duration` | `30m` | Janela de inatividade, renovada **só** pelo heartbeat do hub. **Só é aplicada com `hub.enabled=true`** (sem hub ninguém manda heartbeat; vale só o `ttl`). `0` desliga. |
 | `sentret.cookie-name` | `String` | `SENTRETSID` | Nome do cookie. Use `__Host-SID` para endurecer o cookie. |

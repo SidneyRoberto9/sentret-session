@@ -23,8 +23,11 @@ application (`spring-boot-starter-web`, which the library does not pull in); a `
 
 ## Database
 
-Run once (Flyway, Liquibase or by hand). Portable as written across MySQL, MariaDB, PostgreSQL,
-SQL Server and H2; the same script ships in the jar at `db/sentret-schema.sql`.
+Nothing to do: at startup the library creates the `sentret_sessions` table when it does not exist
+(MySQL, MariaDB, PostgreSQL, SQL Server and H2), and leaves an existing one alone. To own the schema
+yourself (Flyway, Liquibase, or a database user without `CREATE TABLE`), set
+`sentret.create-table=false` and run the script below, which also ships in the jar at
+`db/sentret-schema.sql`.
 
 ```sql
 CREATE TABLE sentret_sessions (
@@ -42,7 +45,7 @@ CREATE INDEX idx_sentret_sessions_expires_at ON sentret_sessions (expires_at);
 
 Session ids are case-sensitive. On MySQL/MariaDB declare `session_id` with
 `CHARACTER SET ascii COLLATE ascii_bin`, on SQL Server with `COLLATE Latin1_General_BIN2`
-(PostgreSQL and H2 are case-sensitive already). The library also rejects a row whose id differs only
+(PostgreSQL and H2 are case-sensitive already); the automatic creation already does this. The library also rejects a row whose id differs only
 in case, so a case-insensitive column is safe, just with fewer effective bits.
 
 ## Quickstart
@@ -84,6 +87,7 @@ Nothing is required.
 | Property | Default | |
 |---|---|---|
 | `enabled` | `true` | Turn the library off. |
+| `create-table` | `true` | Create `sentret_sessions` at startup when missing. `false` only logs an error. |
 | `ttl` | `8h` | Absolute session lifetime. |
 | `max-idle` | `30m` | Inactivity window, reset only by the hub heartbeat. Enforced only with `hub.enabled=true`; `0` disables it. |
 | `cookie-name` | `SENTRETSID` | Use `__Host-SID` to harden the cookie. |
