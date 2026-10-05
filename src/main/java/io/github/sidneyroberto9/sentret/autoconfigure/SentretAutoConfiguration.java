@@ -67,8 +67,8 @@ public class SentretAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public SentretSessionStore sentretSessionStore(JdbcTemplate jdbcTemplate) {
-        return new JdbcSentretSessionStore(jdbcTemplate);
+    public SentretSessionStore sentretSessionStore(JdbcTemplate jdbcTemplate, SentretProperties properties) {
+        return new JdbcSentretSessionStore(jdbcTemplate, properties.isCreateTable());
     }
 
     @Bean

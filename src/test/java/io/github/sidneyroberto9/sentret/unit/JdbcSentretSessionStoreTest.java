@@ -9,7 +9,9 @@ import ch.qos.logback.core.read.ListAppender;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.jdbc.core.ConnectionCallback;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.datasource.DriverManagerDataSource;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabase;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder;
 import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType;
@@ -141,19 +143,62 @@ class JdbcSentretSessionStoreTest {
         assertThat(store.findBySessionId("live")).isPresent();
     }
 
-    /** Logins fail until the table exists; say so at startup instead of only with a 500 on login. */
     @Test
-    void startupReportsAMissingTable() {
-        EmbeddedDatabase empty = new EmbeddedDatabaseBuilder().setType(EmbeddedDatabaseType.H2).generateUniqueName(true).build();
-        Logger logger = (Logger) LoggerFactory.getLogger(JdbcSentretSessionStore.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
+    void startupCreatesAMissingTableWithItsIndexes() {
+        EmbeddedDatabase empty = emptyDatabase();
+        JdbcTemplate jdbc = new JdbcTemplate(empty);
+        JdbcSentretSessionStore fresh = new JdbcSentretSessionStore(jdbc);
+        ListAppender<ILoggingEvent> appender = captureLogs();
 
         try {
-            new JdbcSentretSessionStore(new JdbcTemplate(empty)).afterSingletonsInstantiated();
+            fresh.afterSingletonsInstantiated();
+            fresh.insert(session("sid-1", "user-1", T0.plusSeconds(3600)));
+
+            assertThat(fresh.findBySessionId("sid-1")).isPresent();
+            assertThat(jdbc.queryForList(
+                    "SELECT INDEX_NAME FROM INFORMATION_SCHEMA.INDEXES WHERE TABLE_NAME = 'SENTRET_SESSIONS'", String.class))
+                    .contains("IDX_SENTRET_SESSIONS_USER_ID", "IDX_SENTRET_SESSIONS_EXPIRES_AT");
         } finally {
-            logger.detachAppender(appender);
+            releaseLogs(appender);
+            empty.shutdown();
+        }
+
+        assertThat(appender.list)
+                .anyMatch(event -> event.getLevel() == Level.INFO && event.getFormattedMessage().contains("Created table sentret_sessions"));
+    }
+
+    /** A second instance (or a restart) finds the table and leaves it alone. */
+    @Test
+    void startupCreatesTheTableOnlyOnce() {
+        EmbeddedDatabase empty = emptyDatabase();
+        JdbcTemplate jdbc = new JdbcTemplate(empty);
+
+        try {
+            new JdbcSentretSessionStore(jdbc).afterSingletonsInstantiated();
+            new JdbcSentretSessionStore(jdbc).insert(session("sid-1", "user-1", T0.plusSeconds(3600)));
+            new JdbcSentretSessionStore(jdbc).afterSingletonsInstantiated();
+
+            assertThat(new JdbcSentretSessionStore(jdbc).findBySessionId("sid-1")).isPresent();
+        } finally {
+            empty.shutdown();
+        }
+    }
+
+    /** With create-table=false (schema owned by Flyway/Liquibase) a missing table is only reported. */
+    @Test
+    void startupOnlyReportsAMissingTableWhenCreationIsOff() {
+        EmbeddedDatabase empty = emptyDatabase();
+        JdbcTemplate jdbc = new JdbcTemplate(empty);
+        ListAppender<ILoggingEvent> appender = captureLogs();
+
+        try {
+            new JdbcSentretSessionStore(jdbc, false).afterSingletonsInstantiated();
+
+            assertThat(jdbc.queryForObject(
+                    "SELECT COUNT(*) FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_NAME = 'SENTRET_SESSIONS'", Integer.class))
+                    .isZero();
+        } finally {
+            releaseLogs(appender);
             empty.shutdown();
         }
 
@@ -161,19 +206,67 @@ class JdbcSentretSessionStoreTest {
                 .anyMatch(event -> event.getLevel() == Level.ERROR && event.getFormattedMessage().contains("sentret_sessions"));
     }
 
+    /** A database user without CREATE TABLE gets an ERROR, never a failed startup. */
+    @Test
+    void startupReportsATableItCannotCreate() {
+        EmbeddedDatabase empty = emptyDatabase();
+        JdbcTemplate admin = new JdbcTemplate(empty);
+        ListAppender<ILoggingEvent> appender = captureLogs();
+
+        try {
+            admin.execute("CREATE USER reader PASSWORD 'reader'");
+            String url = admin.execute((ConnectionCallback<String>) connection -> connection.getMetaData().getURL());
+            JdbcTemplate reader = new JdbcTemplate(new DriverManagerDataSource(url, "reader", "reader"));
+
+            new JdbcSentretSessionStore(reader).afterSingletonsInstantiated();
+        } finally {
+            releaseLogs(appender);
+            empty.shutdown();
+        }
+
+        assertThat(appender.list)
+                .anyMatch(event -> event.getLevel() == Level.ERROR && event.getFormattedMessage().contains("Could not create table"));
+    }
+
+    @Test
+    void createTableSqlKeepsTheIdCaseSensitiveOnEveryDatabase() {
+        assertThat(JdbcSentretSessionStore.createTableSql("MySQL"))
+                .contains("session_id VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY");
+        assertThat(JdbcSentretSessionStore.createTableSql("MariaDB"))
+                .contains("session_id VARCHAR(20) CHARACTER SET ascii COLLATE ascii_bin NOT NULL PRIMARY KEY");
+        assertThat(JdbcSentretSessionStore.createTableSql("Microsoft SQL Server"))
+                .contains("session_id VARCHAR(20) COLLATE Latin1_General_BIN2 NOT NULL PRIMARY KEY");
+        assertThat(JdbcSentretSessionStore.createTableSql("PostgreSQL"))
+                .contains("session_id VARCHAR(20) NOT NULL PRIMARY KEY");
+        assertThat(JdbcSentretSessionStore.createTableSql("H2"))
+                .contains("session_id VARCHAR(20) NOT NULL PRIMARY KEY");
+    }
+
     @Test
     void startupIsQuietWhenTheTableExists() {
-        Logger logger = (Logger) LoggerFactory.getLogger(JdbcSentretSessionStore.class);
-        ListAppender<ILoggingEvent> appender = new ListAppender<>();
-        appender.start();
-        logger.addAppender(appender);
+        ListAppender<ILoggingEvent> appender = captureLogs();
 
         try {
             store.afterSingletonsInstantiated();
         } finally {
-            logger.detachAppender(appender);
+            releaseLogs(appender);
         }
 
         assertThat(appender.list).isEmpty();
+    }
+
+    private static EmbeddedDatabase emptyDatabase() {
+        return new EmbeddedDatabaseBuilder().setType(EmbeddedDatabaseType.H2).generateUniqueName(true).build();
+    }
+
+    private static ListAppender<ILoggingEvent> captureLogs() {
+        ListAppender<ILoggingEvent> appender = new ListAppender<>();
+        appender.start();
+        ((Logger) LoggerFactory.getLogger(JdbcSentretSessionStore.class)).addAppender(appender);
+        return appender;
+    }
+
+    private static void releaseLogs(ListAppender<ILoggingEvent> appender) {
+        ((Logger) LoggerFactory.getLogger(JdbcSentretSessionStore.class)).detachAppender(appender);
     }
 }

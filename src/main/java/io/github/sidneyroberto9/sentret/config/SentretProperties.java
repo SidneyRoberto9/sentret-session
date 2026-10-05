@@ -18,6 +18,13 @@ public class SentretProperties {
 
     private boolean enabled = true;
 
+    /**
+     * Create the sentret_sessions table at startup when it does not exist. {@code false} for schemas
+     * owned by Flyway/Liquibase or a database user without CREATE TABLE: a missing table is then
+     * only logged.
+     */
+    private boolean createTable = true;
+
     /** Absolute session lifetime. */
     private Duration ttl = Duration.ofHours(8);
 

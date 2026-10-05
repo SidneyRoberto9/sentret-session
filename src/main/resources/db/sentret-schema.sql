@@ -1,4 +1,5 @@
--- Sentret — run once (Flyway, Liquibase or by hand) before starting the application.
+-- Sentret — the library creates this table at startup when missing (sentret.create-table=true, the default).
+-- With sentret.create-table=false run it once yourself (Flyway, Liquibase or by hand) before starting the application.
 -- Portable as written: MySQL, MariaDB, PostgreSQL, SQL Server and H2.
 -- Times are epoch milliseconds (BIGINT): no time-zone conversion, no 2038 limit.
 --

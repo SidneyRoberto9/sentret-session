@@ -22,6 +22,7 @@ class SentretPropertiesTest {
     void worksWithZeroConfiguration() {
         SentretProperties properties = bind(Map.of());
 
+        assertThat(properties.isCreateTable()).isTrue();
         assertThat(properties.getTtl()).isEqualTo(Duration.ofHours(8));
         assertThat(properties.getMaxIdle()).isEqualTo(Duration.ofMinutes(30));
         assertThat(properties.getCookieName()).isEqualTo("SENTRETSID");
@@ -54,7 +55,7 @@ class SentretPropertiesTest {
         // JaCoCo adds a synthetic $jacocoData field when coverage is on.
         assertThat(Arrays.stream(SentretProperties.class.getDeclaredFields()).filter(field -> !field.isSynthetic()).map(Field::getName))
                 .containsExactlyInAnyOrder(
-                        "enabled", "ttl", "maxIdle", "cookieName", "cookieSecure", "cookieSameSite",
+                        "enabled", "createTable", "ttl", "maxIdle", "cookieName", "cookieSecure", "cookieSameSite",
                         "cookieDomain", "csrfEnabled", "csrfIgnoredPaths", "corsAllowedOrigins", "permitAllPaths", "hub");
     }
 }
